@@ -480,6 +480,10 @@ int CShellLogicDispatcher::OnLButtonDown(float x, float y)
 	if(!universe())
 		return 0;
 
+	// Update hover state immediately. On touch screens (Android), the cursor "teleports" to the click location,
+	// and we need up-to-date unit data before processing the click to avoid using stale data from quant().
+	_pUnitHover = universe()->TraceUnit(Vect2f(x - 0.5f, y - 0.5f));
+
 	terPlayer* pPlayer = universe()->activePlayer();
 	if(!pPlayer)
 		return 0;
@@ -563,6 +567,10 @@ int CShellLogicDispatcher::OnLButtonDblClk(float x, float y)
 	if (gameShell->BuildingInstallerInited()) {
 		return 0;
 	}
+	if (universe()) {
+		// Update hover state immediately for touch "teleport" clicks to avoid stale data.
+		_pUnitHover = universe()->TraceUnit(Vect2f(x - 0.5f, y - 0.5f));
+	}
 	if (_pUnitHover()) {
 		terPlayer* pPlayer = universe()->activePlayer();
 		terFrame* fr = dynamic_cast<terFrame*>(_pUnitHover());
@@ -583,6 +591,11 @@ int CShellLogicDispatcher::OnRButtonDown(float x, float y)
 {
 	if (gameShell->BuildingInstallerInited()) {
 		return 0;
+	}
+
+	if (universe()) {
+		// Update hover state immediately for touch "teleport" clicks to avoid stale data.
+		_pUnitHover = universe()->TraceUnit(Vect2f(x - 0.5f, y - 0.5f));
 	}
 
 	m_fMousePressX = x;
