@@ -231,9 +231,14 @@ void cTileMapRender::CalcTileMap(cCamera* DrawNode) {
                 // create/update render tile
                 if (render->bumpTileValid(bumpTileID)
                     && render->bumpTiles[bumpTileID]->LOD != iLod) {
-                    // LOD changed, free old tile and allocate new
+                    sBumpTile* oldTile = render->bumpTiles[bumpTileID];
+                    // Only LOD 0 and 1 share a texture-page size. A terrain
+                    // revision must always regenerate its colour texture.
+                    const bool reuseTexture = !Tile.GetUpdate() &&
+                            bumpTexScale[oldTile->LOD] == bumpTexScale[iLod];
                     bumpTileFree(bumpTileID);
-                    bumpTileID = bumpTileAlloc(iLod, k, n);
+                    bumpTileID = bumpTileAlloc(iLod, k, n,
+                                               reuseTexture ? oldTile : NULL);
                 } else if (!bumpTileValid(bumpTileID)) {
                     // no tile assigned, allocate one
                     bumpTileID = bumpTileAlloc(iLod, k, n);
@@ -301,7 +306,9 @@ void cTileMapRender::CalcTileMap(cCamera* DrawNode) {
             }
 
             if ((!bumpTile->init) || Tile.GetUpdate() || update_line) {
-                bumpTile->Calc(!bumpTile->init || Tile.GetUpdate());
+                const bool updateTexture = !bumpTile->init || Tile.GetUpdate();
+                bumpTile->Calc(updateTexture,
+                               !bumpTile->init && bumpTile->TakeInitialTextureReuse());
                 Tile.ClearUpdate();
             }
 
@@ -346,13 +353,15 @@ cTilemapTexturePool* cTileMapRender::FindFreeTexturePool(int tex_width, int tex_
     return bumpTexPools[i];
 }
 
-int cTileMapRender::bumpTileAlloc(int lod,int xpos,int ypos)
+int cTileMapRender::bumpTileAlloc(int lod,int xpos,int ypos,sBumpTile* textureSource)
 {
 
     int w = tilemap->GetTileSize().x >> bumpTexScale[lod];
     int h = tilemap->GetTileSize().y >> bumpTexScale[lod];
     cTilemapTexturePool* pool = FindFreeTexturePool(w, h);
     sBumpTile* tile = new sBumpTile(tilemap, pool, lod, xpos, ypos);
+    if (textureSource)
+        tile->ReuseTextureFrom(*textureSource);
     int i;
     for (i = 0; i < bumpTiles.size(); i++) {
         if (!bumpTiles[i]) {

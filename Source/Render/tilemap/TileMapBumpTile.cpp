@@ -46,7 +46,8 @@ sBumpTile::sBumpTile(cTileMap* tilemap, cTilemapTexturePool* pool, int lod, int 
 sBumpTile::~sBumpTile()
 {
     tilemap->GetTilemapRender()->GetVertexPool()->DeletePage(vtx);
-    texPool->freePage(texPage);
+    if (texPage >= 0)
+        texPool->freePage(texPage);
 
     DeleteIndex();
 }
@@ -114,15 +115,38 @@ void sBumpTile::CalcTexture()
     UnlockTex();
 }
 
-void sBumpTile::Calc(bool update_texture)
+bool sBumpTile::ReuseTextureFrom(sBumpTile& source)
 {
-    if(update_texture)
+    if (texPool != source.texPool || source.texPage < 0)
+        return false;
+
+    texPool->freePage(texPage);
+    texPage = source.texPage;
+    source.texPage = -1;
+    Vect2f uvStart = texPool->getUVStart(texPage);
+    uStart = uvStart.x;
+    vStart = uvStart.y;
+    initial_texture_reused = true;
+    return true;
+}
+
+bool sBumpTile::TakeInitialTextureReuse()
+{
+    const bool reused = initial_texture_reused;
+    initial_texture_reused = false;
+    return reused;
+}
+
+void sBumpTile::Calc(bool update_texture, bool reuse_texture)
+{
+    if(update_texture && !reuse_texture) {
         CalcTexture();
-    CalcPoint();
+    }
+    CalcPoint(!update_texture, update_texture);
     init = true;
 }
 
-void sBumpTile::CalcPoint()
+void sBumpTile::CalcPoint(bool reuse_point_players, bool invalidate_topology)
 {
     Column** columns = tilemap->GetColumn();
     Vect2i pos=tile_pos;
@@ -144,31 +168,90 @@ void sBumpTile::CalcPoint()
 
     int ddv=dd+1;
     VectDelta* points = render->GetDeltaBuffer();
+    const size_t point_count = static_cast<size_t>(ddv) * ddv;
+    const bool use_point_base_cache =
+            reuse_point_players && point_base_cache.size() == point_count;
 
-    for (int y=0;y<ddv;y++) {
-        for (int x = 0; x < ddv; x++) {
-            VectDelta& p = points[x + y * ddv];
-            p.set(x * xstep + minx, y * xstep + miny);
-            p.delta.set(0, 0);
-            p.delta2 = INT_MAX;
-            p.player = 0;
-            p.fix = 0;
+    if (use_point_base_cache) {
+        std::copy(point_base_cache.begin(), point_base_cache.end(), points);
+    } else {
+        for (int y=0;y<ddv;y++) {
+            for (int x = 0; x < ddv; x++) {
+                const size_t point_index = static_cast<size_t>(x + y * ddv);
+                VectDelta& p = points[point_index];
+                p.set(x * xstep + minx, y * xstep + miny);
+                p.delta.set(0, 0);
+                p.delta2 = INT_MAX;
+                p.player = 0;
+                p.fix = 0;
 
-            int xx = min(p.x, maxx - 1);
-            int yy = min(p.y, maxy - 1);
-            if (columns) {
-                for (int player = 0; player < tilenumber; player++) {
-                    if (columns[player]->filled(xx, yy)) {
-                        xassert(p.player == 0);
-                        p.player = player + 1;
+                int xx = min(p.x, maxx - 1);
+                int yy = min(p.y, maxy - 1);
+                if (columns) {
+                    for (int player = 0; player < tilenumber; player++) {
+                        if (columns[player]->filled(xx, yy)) {
+                            xassert(p.player == 0);
+                            p.player = player + 1;
+                        }
                     }
                 }
             }
         }
+        point_base_cache.assign(points, points + point_count);
     }
 
     int fix_out = FixLine(points,ddv);
 
+    const bool reuse_interior_points =
+            reuse_point_players && interior_point_valid &&
+            interior_point_cache.size() == point_count;
+    if (reuse_interior_points) {
+        for (int y = 1; y < dd; ++y) {
+            for (int x = 1; x < dd; ++x) {
+                const size_t point_index = static_cast<size_t>(x + y * ddv);
+                points[point_index] = interior_point_cache[point_index];
+            }
+        }
+    }
+
+    if (!reuse_point_players) {
+        boundary_region_candidates.clear();
+        boundary_region_candidates_valid = false;
+    }
+
+    auto projectBoundary = [&](int player, const Vect2s& source) {
+        Vect2i p(source.x, source.y), pround;
+        VectDelta* pnt = NULL;
+        char dd2 = dd / 2;
+        pround.x = (p.x - minx + xstep) >> (step + 1);
+        pround.y = (p.y - miny + xstep) >> (step + 1);
+        if (!(pround.x < 0 || pround.x > dd2 || pround.y < 0 || pround.y > dd2)) {
+            pround.x *= 2; pround.y *= 2;
+            pnt = &points[pround.x + pround.y * ddv];
+            if (!pnt->fix) pnt = NULL;
+        }
+        if (!pnt) {
+            pround.x = (p.x - minx + xstep2) >> step;
+            pround.y = (p.y - miny + xstep2) >> step;
+            if (pround.x < 0 || pround.x > dd || pround.y < 0 || pround.y > dd) return;
+        }
+        if (pround.x > 0 && pround.x < dd && pround.y > 0 && pround.y < dd) return;
+        pnt = &points[pround.x + pround.y * ddv];
+        if (pnt->fix & VectDelta::FIX_FIXED) {
+            pround.x &= ~1; pround.y &= ~1;
+            pnt = &points[pround.x + pround.y * ddv];
+        }
+        int delta2 = sqr(pnt->x - p.x) + sqr(pnt->y - p.y);
+        if (delta2 >= pnt->delta2) return;
+        pnt->delta2 = delta2; pnt->delta = p - *pnt; pnt->player = -1;
+        if (pnt->fix & VectDelta::FIX_RIGHT) points[pround.x + 1 + pround.y * ddv].copy_no_fix(*pnt);
+        if (pnt->fix & VectDelta::FIX_BOTTOM) points[pround.x + (pround.y + 1) * ddv].copy_no_fix(*pnt);
+    };
+
+    if (reuse_point_players && boundary_region_candidates_valid) {
+        for (const auto& candidate : boundary_region_candidates)
+            projectBoundary(candidate.player, candidate.point);
+    } else {
     //int preceeded_point=0;
     for (int player=0;player<tilenumber;player++) {
         char dd2=dd/2;
@@ -196,6 +279,21 @@ void sBumpTile::CalcPoint()
 
                         FOR_EACH(*region, it) {
                             Vect2i p(it->x, it->y);
+
+                            if (!reuse_point_players) {
+                                const int regular_x = (p.x - minx + xstep2) >> step;
+                                const int regular_y = (p.y - miny + xstep2) >> step;
+                                const int stitched_x =
+                                        ((p.x - minx + xstep) >> (step + 1)) * 2;
+                                const int stitched_y =
+                                        ((p.y - miny + xstep) >> (step + 1)) * 2;
+                                if (regular_x == 0 || regular_x == dd ||
+                                        regular_y == 0 || regular_y == dd ||
+                                        stitched_x == 0 || stitched_x == dd ||
+                                        stitched_y == 0 || stitched_y == dd) {
+                                    boundary_region_candidates.push_back({*it, player});
+                                }
+                            }
 
                             Vect2i pround;
                             VectDelta* pnt = NULL;
@@ -235,6 +333,14 @@ void sBumpTile::CalcPoint()
                                 pround.y = dd;
                             }
 
+                            // A pure LOD stitch cannot affect an interior
+                            // point.  Its resolved projection was restored
+                            // from the terrain-revision cache above.
+                            if (reuse_interior_points && pround.x > 0 &&
+                                    pround.x < dd && pround.y > 0 &&
+                                    pround.y < dd)
+                                continue;
+
                             pnt = &points[pround.x + pround.y * ddv];
                             if (pnt->fix & VectDelta::FIX_FIXED) {
                                 pround.x &= ~1;
@@ -268,19 +374,43 @@ void sBumpTile::CalcPoint()
             }
         }
     }
+    }
+
+    if (!reuse_interior_points) {
+        interior_point_cache.assign(points, points + point_count);
+        interior_point_valid = true;
+    }
+    if (!reuse_point_players)
+        boundary_region_candidates_valid = true;
 
     std::vector<std::vector<sPolygon>>& index = render->GetIndexBuffer();
-
-    {
+    const bool reuse_topology = !invalidate_topology && topology_valid;
+    const bool reuse_interior_topology =
+            !reuse_topology && !invalidate_topology && interior_topology_valid;
+    if (reuse_topology) {
+        index = topology_cache;
+    } else if (reuse_interior_topology) {
+        index = interior_topology_cache;
+    } else {
         index.resize(tilenumber+1);
         for(int i=0;i<index.size();i++) {
             index[i].clear();
         }
+        interior_topology_cache.resize(tilenumber+1);
+        for (auto& player_index : interior_topology_cache) {
+            player_index.clear();
+        }
     }
 
     sPolygon poly;
-    for (int y=0;y<dd;y++) {
+    for (int y=0; !reuse_topology && y<dd; y++) {
         for(int x=0;x<dd;x++) {
+            // LOD stitching changes only points on the outer grid lines, so
+            // cells strictly inside this ring retain their prior topology.
+            const bool interior_cell = x > 0 && x < dd - 1 &&
+                    y > 0 && y < dd - 1;
+            if (reuse_interior_topology && interior_cell)
+                continue;
             int base=x+y*ddv;
             VectDelta *p00,*p01,*p10,*p11;
             p00=points+base;
@@ -325,6 +455,8 @@ void sBumpTile::CalcPoint()
                 xassert(cur_player_add>=0 && cur_player_add<=tilenumber);
                 poly.set(base,base+ddv,base+1);
                 index[cur_player_add].push_back(poly);
+                if (!reuse_interior_topology && interior_cell)
+                    interior_topology_cache[cur_player_add].push_back(poly);
 
                 cur_player_add=-1;
                 no=false;
@@ -349,6 +481,8 @@ void sBumpTile::CalcPoint()
                 xassert(cur_player_add>=0 && cur_player_add<=tilenumber);
                 poly.set(base+ddv,base+ddv+1,base+1);
                 index[cur_player_add].push_back(poly);
+                if (!reuse_interior_topology && interior_cell)
+                    interior_topology_cache[cur_player_add].push_back(poly);
             }else
             {
                 cur_player_add=-1;
@@ -375,6 +509,8 @@ void sBumpTile::CalcPoint()
                 xassert(cur_player_add>=0 && cur_player_add<=tilenumber);
                 poly.set(base,base+ddv+1,base+1);
                 index[cur_player_add].push_back(poly);
+                if (!reuse_interior_topology && interior_cell)
+                    interior_topology_cache[cur_player_add].push_back(poly);
 
                 cur_player_add=-1;
                 no=false;
@@ -399,10 +535,18 @@ void sBumpTile::CalcPoint()
                 xassert(cur_player_add>=0 && cur_player_add<=tilenumber);
                 poly.set(base,base+ddv,base+ddv+1);
                 index[cur_player_add].push_back(poly);
+                if (!reuse_interior_topology && interior_cell)
+                    interior_topology_cache[cur_player_add].push_back(poly);
             }
         }
     }
 #undef X
+    if (!reuse_interior_topology)
+        interior_topology_valid = true;
+    if (!reuse_topology) {
+        topology_cache = index;
+        topology_valid = true;
+    }
 
     /////////////////////set vertex buffer
     int is = tilemap->GetTileSize().x; // tile size in vMap units
@@ -423,9 +567,15 @@ void sBumpTile::CalcPoint()
     BUMP_VTXTYPE* vb = reinterpret_cast<BUMP_VTXTYPE*>(LockVB());
 
     TerraInterface* terra = tilemap->GetTerra();
+    const bool update_only_border_vertices = reuse_interior_points;
 
     for (int y = 0; y < ddv; y++) {
         for (int x = 0; x < ddv; x++) {
+            if (update_only_border_vertices && x > 0 && x < dd &&
+                    y > 0 && y < dd) {
+                vb++;
+                continue;
+            }
             int i = x + y * ddv;
             VectDelta& p = points[i];
             int xx = p.x + p.delta.x;

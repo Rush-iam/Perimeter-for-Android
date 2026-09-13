@@ -48,7 +48,7 @@ public:
     int bumpNumVertices(int lod);
     void bumpCreateIB(sPolygon* ib, int lod);
     int bumpTileValid(int id);
-    int bumpTileAlloc(int lod,int xpos,int ypos);
+    int bumpTileAlloc(int lod,int xpos,int ypos,sBumpTile* textureSource = NULL);
     void bumpTileFree(int id);
     void bumpTilesDeath();
     void CalcTileMap(cCamera* DrawNode);
