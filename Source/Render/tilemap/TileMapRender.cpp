@@ -5,6 +5,8 @@
 #include "TileMapBumpTile.h"
 #include "TileMapRender.h"
 #include "FileImage.h"
+#include "../../XTool/xutl.h"
+#include <cstring>
 
 #if defined(__ANDROID__)
 #include "AndroidFrameTiming.h"
@@ -40,6 +42,17 @@ cTileMapRender::cTileMapRender(cTileMap *pTileMap)
     tilemap=pTileMap;
 
     int dxy= tilemap->GetTileNumber().x * tilemap->GetTileNumber().y;
+    bumpTileLodCache.resize(dxy);
+    for (auto& cache : bumpTileLodCache)
+        cache.fill(-1);
+
+#if defined(__ANDROID__)
+    const char* cache = check_command_line("zoom_lod_cache");
+    // The cache uses shared tilemap resources and is safe for both Android
+    // renderers; Android launch options control whether it is enabled.
+    lodCacheEnabled = cache && std::strcmp(cache, "1") == 0;
+#endif
+
     visMap=new uint8_t[dxy];
     vis_lod=new char[dxy];
     for(int i=0;i<dxy;i++)
@@ -75,6 +88,7 @@ void cTileMapRender::ClearTilemapPool()
     }
 
     bumpDyingTiles.clear();
+    bumpTileLodCache.clear();
     
     for(int i=0;i<bumpTiles.size();i++)
     {
@@ -101,8 +115,79 @@ void cTileMapRender::ClearTilemapPool()
     }
 }
 
+void cTileMapRender::cacheBumpTile(int tileIndex, int id)
+{
+    if (!lodCacheEnabled || !bumpTileValid(id))
+        return;
+
+    auto& cache = bumpTileLodCache[tileIndex];
+    const int lod = bumpTiles[id]->LOD;
+    int slot = -1;
+    for (int i = 0; i < static_cast<int>(cache.size()); ++i) {
+        if (cache[i] >= 0 && bumpTileValid(cache[i]) &&
+                bumpTiles[cache[i]]->LOD == lod) {
+            slot = i;
+            break;
+        }
+        if (slot < 0 && cache[i] < 0)
+            slot = i;
+    }
+    if (slot < 0)
+        slot = 0;
+
+    if (cache[slot] >= 0 && cache[slot] != id && bumpTileValid(cache[slot])) {
+        delete bumpTiles[cache[slot]];
+        bumpTiles[cache[slot]] = nullptr;
+    }
+    cache[slot] = id;
+}
+
+int cTileMapRender::takeCachedBumpTile(int tileIndex, int lod)
+{
+    if (!lodCacheEnabled)
+        return -1;
+
+    auto& cache = bumpTileLodCache[tileIndex];
+    for (int& id : cache) {
+        if (id >= 0 && bumpTileValid(id) && bumpTiles[id]->LOD == lod) {
+            const int result = id;
+            id = -1;
+            for (char& border : bumpTiles[result]->border_lod)
+                border = static_cast<char>(lod);
+            // Cache-only control: force the restored variant through the
+            // normal geometry rebuild.
+            bumpTiles[result]->init = false;
+            return result;
+        }
+        if (id >= 0 && !bumpTileValid(id))
+            id = -1;
+    }
+    return -1;
+}
+
+void cTileMapRender::discardCachedBumpTiles(int tileIndex)
+{
+    if (!lodCacheEnabled)
+        return;
+
+    for (int& id : bumpTileLodCache[tileIndex]) {
+        if (id >= 0 && bumpTileValid(id)) {
+            delete bumpTiles[id];
+            bumpTiles[id] = nullptr;
+        }
+        id = -1;
+    }
+}
+
 void cTileMapRender::RestoreTilemapPool()
 {
+    const int tileCount = tilemap->GetTileNumber().x * tilemap->GetTileNumber().y;
+    if (bumpTileLodCache.size() != static_cast<size_t>(tileCount)) {
+        bumpTileLodCache.resize(tileCount);
+        for (auto& cache : bumpTileLodCache)
+            cache.fill(-1);
+    }
+
     if (!vertexPoolManager) {
         vertexPoolManager = new VertexPoolManager();
     }
@@ -229,30 +314,63 @@ void cTileMapRender::CalcTileMap(cCamera* DrawNode) {
                 // process visible tile
                 sTile& Tile = tilemap->GetTile(k, n);
                 int& bumpTileID = Tile.bumpTileID;
+                const int tileIndex = k + n * dk;
+
+                if (Tile.GetUpdate()) {
+                    discardCachedBumpTiles(tileIndex);
+                }
 
                 // calc LOD считается всегда по отгошению к прямой камере для 
                 // избежания случая 2 разных LOD в одно время 
-                float dist = pNormalCamera->GetPos().distance(coord + dcoord / 2);
                 int iLod;
-                for (iLod = 0; iLod < TILEMAP_LOD; iLod++)
-                    if (dist < DistLevelDetail[iLod]) break;
-                if (iLod >= TILEMAP_LOD) iLod = TILEMAP_LOD - 1;
-                vis_lod[k + n * dk] = iLod;
+                float dist=pNormalCamera->GetPos().distance(coord+dcoord/2);
+                for(iLod=0;iLod<TILEMAP_LOD;iLod++)
+                    if(dist<DistLevelDetail[iLod])break;
+                if (iLod >= TILEMAP_LOD)
+                    iLod = TILEMAP_LOD - 1;
+
+                vis_lod[k+n*dk]=iLod;
 
                 // create/update render tile
-                if (render->bumpTileValid(bumpTileID)
-                    && render->bumpTiles[bumpTileID]->LOD != iLod) {
+                if(render->bumpTileValid(bumpTileID) && render->bumpTiles[bumpTileID]->LOD!=iLod)
+                {
                     sBumpTile* oldTile = render->bumpTiles[bumpTileID];
                     // Only LOD 0 and 1 share a texture-page size. A terrain
                     // revision must always regenerate its colour texture.
                     const bool reuseTexture = !Tile.GetUpdate() &&
                             bumpTexScale[oldTile->LOD] == bumpTexScale[iLod];
-                    bumpTileFree(bumpTileID);
-                    bumpTileID = bumpTileAlloc(iLod, k, n,
-                                               reuseTexture ? oldTile : NULL);
-                } else if (!bumpTileValid(bumpTileID)) {
+                    int cachedTileID = takeCachedBumpTile(tileIndex, iLod);
+                    if (cachedTileID >= 0) {
+                        if (lodCacheEnabled) {
+                            cacheBumpTile(tileIndex, bumpTileID);
+                            bumpTileID = cachedTileID;
+                        } else {
+                            bumpTileFree(bumpTileID);
+                            bumpTileID = cachedTileID;
+                        }
+#if defined(__ANDROID__)
+                        androidFrameTimingRecordTilemapLodCacheHit();
+#endif
+                    } else if (lodCacheEnabled) {
+                        cacheBumpTile(tileIndex, bumpTileID);
+                        bumpTileID = bumpTileAlloc(iLod,k,n);
+                    } else {
+                        bumpTileFree(bumpTileID);
+                        bumpTileID=bumpTileAlloc(iLod,k,n,reuseTexture ? oldTile : NULL);
+                    }
+                }
+                else if(!bumpTileValid(bumpTileID))
+                {
                     // no tile assigned, allocate one
-                    bumpTileID = bumpTileAlloc(iLod, k, n);
+                    const int cachedTileID = takeCachedBumpTile(tileIndex, iLod);
+                    if (cachedTileID >= 0) {
+                        bumpTileID = cachedTileID;
+#if defined(__ANDROID__)
+                        androidFrameTimingRecordTilemapLodCacheHit();
+#endif
+                    } else {
+                        bumpTileID=bumpTileAlloc(iLod,k,n);
+                    }
                 }
 
                 sBumpTile* bumpTile = bumpTiles[bumpTileID];
@@ -319,6 +437,9 @@ void cTileMapRender::CalcTileMap(cCamera* DrawNode) {
                 }
             }
 
+            // A restored tile has all borders reset to its own LOD. Its cached
+            // geometry is already valid unless a higher-resolution neighbour
+            // requires a new seam; avoid recalculating every cache hit.
             if ((!bumpTile->init) || Tile.GetUpdate() || update_line) {
                 const bool updateTexture = !bumpTile->init || Tile.GetUpdate();
                 bumpTile->Calc(updateTexture,

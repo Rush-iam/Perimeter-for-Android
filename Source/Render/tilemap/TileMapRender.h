@@ -1,6 +1,8 @@
 #ifndef PERIMETER_TILEMAPRENDER_H
 #define PERIMETER_TILEMAPRENDER_H
 
+#include <array>
+
 struct sBumpTile;
 class cTilemapTexturePool;
 struct VectDelta;
@@ -11,6 +13,13 @@ private:
     cTileMap* tilemap;
     std::vector<sBumpTile*> bumpTiles;
     std::vector<int> bumpDyingTiles;
+    // Zoom LOD cache: retain at most two inactive LOD variants per
+    // tile so a reversing zoom can restore prepared geometry instead of
+    // rebuilding it. The cache uses shared tilemap resources and works with
+    // both Android renderers; the Android launch option controls whether it
+    // is enabled.
+    std::vector<std::array<int, 2>> bumpTileLodCache;
+    bool lodCacheEnabled = false;
     std::vector<cTilemapTexturePool*> bumpTexPools;
     class VertexPoolManager* vertexPoolManager = nullptr;
     class IndexPoolManager* indexPoolManager = nullptr;
@@ -25,6 +34,10 @@ private:
     bool update_in_frame;
 
     void SaveUpdateStat();
+
+    void cacheBumpTile(int tileIndex, int id);
+    int takeCachedBumpTile(int tileIndex, int lod);
+    void discardCachedBumpTiles(int tileIndex);
 
     VectDelta* delta_buffer;
     std::vector<std::vector<sPolygon>> index_buffer;
