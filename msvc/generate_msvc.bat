@@ -22,7 +22,7 @@ IF "%VSCMD_ARG_TGT_ARCH%" == "" (
 		SET MSVC_CMD_ARCH=x86_amd64
 	)
 
-	FOR /f "usebackq delims=" %%i IN (`%VCPKG_SCRIPT_DIR%\vswhere.exe -version "[16.0,17.0)" -latest -property installationPath`) DO (
+	FOR /f "usebackq delims=" %%i IN (`%VCPKG_SCRIPT_DIR%\vswhere.exe -version "[16.0,18.0)" -latest -property installationPath`) DO (
 		IF EXIST "%%i\Common7\Tools\vsdevcmd.bat" (
 			CALL "%%i\Common7\Tools\vsdevcmd.bat" %MSVC_CMD_ARCH%
 		)
@@ -90,7 +90,7 @@ RMDIR /S /Q build
 MKDIR build
 CD build
 
-SET CMAKE_GENERATOR="Visual Studio 17 2022"
+SET CMAKE_GENERATOR="Visual Studio 18 2026"
 SET TOOLCHAIN=CMAKE_TOOLCHAIN_FILE=%VCPKGPATH%\scripts\buildsystems\vcpkg.cmake
 SET VCPKGCUSTOMEDIR=_VCPKG_INSTALLED_DIR=%VCPKG_PARENT_DIR%\vcpkg_installed
 IF "%MSVC_ARCH%" == "x86" (
