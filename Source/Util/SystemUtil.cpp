@@ -514,11 +514,14 @@ sKey::sKey() {
 /////////////////////////////////////////////////////////////////////////////////
 
 bool create_directories(const std::string& path, std::error_code* error) {
-    std::string current;
+    // Content lookups may return absolute paths. Preserve the root instead of
+    // treating the leading separator as an empty directory to create.
+    const std::string native_path = convert_path_native(path);
+    std::string current = std::filesystem::u8path(native_path).root_path().u8string();
     std::string part;
-    size_t size = path.size();
-    for (int i = 0; i < size; ++i) {
-        char c = path[i];
+    size_t size = native_path.size();
+    for (size_t i = current.size(); i < size; ++i) {
+        char c = native_path[i];
         if (c != '\\' && c != '/') {
             part += c;
             
@@ -529,7 +532,8 @@ bool create_directories(const std::string& path, std::error_code* error) {
         }
         
         //Use native PATH_SEP and add path until now to parent
-        if (!current.empty()) {
+        if (part.empty()) continue;
+        if (!current.empty() && current.back() != PATH_SEP) {
             current += PATH_SEP;
         }
         current += part;

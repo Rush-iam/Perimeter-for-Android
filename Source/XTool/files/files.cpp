@@ -302,11 +302,19 @@ filesystem_entry* add_filesystem_entry_internal( // NOLINT(misc-no-recursion)
         std::string entry_key_content = convert_path_native(path_content);
         entry_key_content = string_to_lower(entry_key_content.c_str());
 
+        // Keep the actual path absolute when content is rooted at a different
+        // working directory. Comparisons and the content index are case-insensitive
+        // so aliases such as resource/cursors/up.cur resolve to the same file.
+        std::string absolute_path_content = path_content;
+        if (!path_content.empty() && !std::filesystem::u8path(path_content).is_absolute() && !content_root_path_str.empty()) {
+            absolute_path_content = content_root_path_str + path_content;
+        }
+
         //Check if an override occurs
         std::shared_ptr<filesystem_entry> entry = get_content_entry_internal(paths, entry_key);
         //if (!entry) entry = get_content_entry_internal(paths, entry_key_root);
         if (entry) {
-            if (entry->path_content == path_content) {
+            if (entry->path_content == absolute_path_content) {
                 //Already added
                 return entry.get();
             } else if ((path_is_directory && !options.replace_dirs) || (!path_is_directory && !options.replace_files)) {
@@ -339,12 +347,13 @@ filesystem_entry* add_filesystem_entry_internal( // NOLINT(misc-no-recursion)
         //Configure entry, this may replace previous data so the old keys redirect to new paths
         entry->key = entry_key;
         entry->key_content = entry_key_content;
-        entry->path_content = path_content;
+        entry->path_content = absolute_path_content;
         entry->is_directory = path_is_directory;
 
         //Store path relative and absolute internal paths pointing the real FS path
         paths[entry->key] = entry;
         paths[entry->key_content] = entry;
+        paths[string_to_lower(entry->path_content.c_str())] = entry;
         
         if (entry->is_directory) {
             std::string destination_path_copy = destination_path;
