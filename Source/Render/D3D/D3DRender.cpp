@@ -20,6 +20,13 @@
 #include <commdlg.h>
 #endif
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#include "AndroidFrameTiming.h"
+#include <cstdlib>
+extern "C" void dxvkSetSdl2Window(SDL_Window*) __attribute__((weak));
+#endif
+
 static uint32_t ColorConvertARGB(const sColor4c& c) { return CONVERT_COLOR_TO_ARGB(c.v); };
 
 cD3DRender *gb_RenderDevice3D = nullptr;
@@ -204,6 +211,10 @@ int cD3DRender::Init(int xscr,int yscr,int Mode, SDL_Window* wnd, int RefreshRat
 #ifndef _WIN32
     //DXVK now needs DXVK_WSI_DRIVER to be set, we set SDL2 with replace=0 so that user may change it
     setenv("DXVK_WSI_DRIVER", "SDL2", 0);
+#if defined(__ANDROID__)
+    if (dxvkSetSdl2Window)
+        dxvkSetSdl2Window(sdl_window);
+#endif
 #endif
 
 	if(!lpD3D)
@@ -710,6 +721,17 @@ void cD3DRender::RestoreDeviceIfLost()
 	int hr;
 	while(FAILED(hr=lpD3DDevice->TestCooperativeLevel()))
     { // Test the cooperative level to see if it's okay to render
+#if defined(__ANDROID__)
+        // DXVK reports a lost Vulkan device as a permanently failed D3D9
+        // cooperative level. The desktop reset loop below cannot recover an
+        // Android Vulkan device, and would otherwise leave a black screen
+        // spinning forever on the SDL thread.
+        if (hr == D3DERR_DEVICELOST) {
+            __android_log_print(ANDROID_LOG_ERROR, "Perimeter",
+                "DXVK lost the Vulkan device; terminating the renderer process");
+            std::_Exit(2);
+        }
+#endif
 #ifdef _WIN32
         if( D3DERR_DEVICELOST == hr )
 		{
