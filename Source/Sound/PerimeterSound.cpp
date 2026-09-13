@@ -220,12 +220,17 @@ void SNDReleaseSound()
 {
 	if (!has_sound_init) return;
 
+    // Stop and synchronize the mixer before releasing any Mix_Chunk objects.
+    // Otherwise its audio callback may still be reading a chunk while
+    // script removal frees it, corrupting the heap on an in-process restart.
     SNDSetupChannelCallback(0, false);
+
+    Mix_HaltChannel(-1);
+    Mix_HaltMusic();
+    Mix_CloseAudio();
 
 	script3d.RemoveAll();
 	script2d.RemoveAll();
-
-    Mix_CloseAudio();
 
     Mix_Quit();
 
@@ -1041,4 +1046,3 @@ int SNDGetPushLevel()
 {
 	return pause_level;
 }
-
