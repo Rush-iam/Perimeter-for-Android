@@ -742,9 +742,13 @@ int SwitchMenuBGQuant2( float, float ) {
 #ifdef EMSCRIPTEN
                     _shellIconManager.GetWnd(SQSH_MM_QUIT_BTN)->Enable(false);
 #endif
-#ifdef GPX
+#if defined(GPX) || defined(__ANDROID__)
+                    // Android selects the locale in the launcher. The in-game
+                    // picker restarts the process, which Android cannot exec.
                     _shellIconManager.GetWnd(SQSH_MM_LANG_BTN)->Enable(false);
+#ifdef GPX
                     _shellIconManager.GetWnd(SQSH_MM_CONTENT_CHOOSER_BTN)->Enable(false);
+#endif
 #endif
                     _shellIconManager.GetWnd(SQSH_MM_MULTIPLAYER_BTN)->Enable(terGameContentAvailable == terGameContentSelect);
                     break;
