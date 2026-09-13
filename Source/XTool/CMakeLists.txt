@@ -62,6 +62,11 @@ ELSE()
                 setup_windbg()
             ENDIF()
             SET(CMAKE_FIND_LIBRARY_SUFFIXES ${PREFER_DYNAMIC_LIBRARY_SUFFIXES})
+        ELSEIF(ANDROID)
+            # The default header-only backend uses the NDK unwinder and dladdr;
+            # Android does not provide the desktop addr2line executable.
+            MESSAGE("Stacktrace: Using Android unwind/dladdr")
+            SET(XTool_LINK_LIBS ${XTool_LINK_LIBS} ${CMAKE_DL_LIBS})
         ELSE()
             #Use ADDR2LINE in POSIX unless Backtrace is wanted
             FIND_PACKAGE(Backtrace)

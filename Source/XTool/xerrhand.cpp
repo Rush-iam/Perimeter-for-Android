@@ -256,9 +256,15 @@ XErrorHandler::XErrorHandler() {
         }
     }
 
-    //Register handler
+    // Android's debuggerd can produce a symbolicated native tombstone only when
+    // the fatal signal reaches it.  handleSignal performs allocations, logging,
+    // and SDL UI work, none of which is async-signal-safe; doing that after a
+    // SIGSEGV can turn the original fault into an unreportable secondary crash.
+    // Keep the desktop crash UI, but let Android report fatal signals directly.
+#if !defined(__ANDROID__)
     setTerminateHandler(handleTerminate);
     setSignalHandler(handleSignal);
+#endif
 }
 
 XErrorHandler::~XErrorHandler() {
@@ -363,6 +369,7 @@ void XErrorHandler::Abort(const char* message, int code, int val, const char* su
 
     stream << std::endl << "Call stack:" << std::endl;
     getStackTrace(stream);
+#if !defined(__ANDROID__)
     if (startsWith(locale, "russian")) {
         stream << std::endl << "Пожалуйста отправьте:" << std::endl <<
                " - Это сообщение" << std::endl <<
@@ -374,6 +381,7 @@ void XErrorHandler::Abort(const char* message, int code, int val, const char* su
                " - Log file '" << log_path.c_str() << "'" << std::endl <<
                "To https://t.me/PerimeterGame or https://github.com/KD-lab-Open-Source/Perimeter" << std::endl;
     }
+#endif
     std::string str =  stream.str();
 
     fprintf(stderr, "%s\n", str.c_str());
