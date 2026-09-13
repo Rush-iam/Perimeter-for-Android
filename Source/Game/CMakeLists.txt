@@ -19,11 +19,15 @@ target_sources(perimeter PRIVATE
         "${PROJECT_SOURCE_DIR}/Source/TriggerEditor/TriggerExport.cpp"
 )
 
-target_include_directories(perimeter PRIVATE
+target_include_directories(perimeter PUBLIC
+        .
         "${PROJECT_SOURCE_DIR}/Source/XTool"
-        "${PROJECT_SOURCE_DIR}/Source/XPrm" #For Statistics.h
         "${PROJECT_SOURCE_DIR}/Source/Util"
         "${PROJECT_SOURCE_DIR}/Source/Render/inc"
+)
+
+target_include_directories(perimeter PRIVATE
+        "${PROJECT_SOURCE_DIR}/Source/XPrm" #For Statistics.h
         "${PROJECT_SOURCE_DIR}/Source/Render/client"
         "${PROJECT_SOURCE_DIR}/Source/Terra"
         "${PROJECT_SOURCE_DIR}/Source/tx3d"
@@ -36,7 +40,6 @@ target_include_directories(perimeter PRIVATE
         "${PROJECT_SOURCE_DIR}/Source/Sound"
         "${PROJECT_SOURCE_DIR}/Source/Scripts"
         "${PROJECT_SOURCE_DIR}/Source/Game/Scripts"
-        .
 )
 
 SET(perimeter_LINK_LIBS
@@ -83,7 +86,7 @@ IF(OPTION_GPERFTOOLS)
     SET(perimeter_LINK_LIBS ${perimeter_LINK_LIBS} -ltcmalloc -lprofiler)
 ENDIF()
 
-#Add XPrmLib if Debug build
+# Generated game parameter sections use XPrmLib at runtime in Debug builds.
 IF(PERIMETER_DEBUG)
     ADD_DEPENDENCIES(dependencies XPrmLib)
     SET(perimeter_LINK_LIBS ${perimeter_LINK_LIBS} XPrmLib)
@@ -105,13 +108,13 @@ IF(PERIMETER_EXODUS)
     SET(perimeter_LINK_LIBS ${perimeter_LINK_LIBS} Exodus)
 ENDIF()
 
-IF(OPTION_PROCESS_SCRIPTS)
+IF(OPTION_PROCESS_SCRIPTS AND TARGET ScriptsCompile)
     ADD_DEPENDENCIES(dependencies ScriptsCompile)
     MESSAGE("Scripts will be compiled")
 ELSE()
     MESSAGE("Not compiling Scripts")
 ENDIF()
-IF(OPTION_CHECK_SCRIPTS)
+IF(OPTION_CHECK_SCRIPTS AND TARGET ScriptsCheck)
     ADD_DEPENDENCIES(dependencies ScriptsCheck)
     MESSAGE("Scripts will be checked")
 ELSE()

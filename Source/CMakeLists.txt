@@ -1,5 +1,11 @@
+# XPrmLib is also used at runtime by generated game parameter sections.  The
+# standalone XPrm executable and script processing are host-side development
+# tools, so Android omits only the latter.  The option is supplied only by the
+# Android wrapper; normal desktop defaults remain unchanged.
 ADD_SUBDIRECTORY("XPrm")
-ADD_SUBDIRECTORY("Scripts")
+if(NOT (ANDROID AND PERIMETER_ANDROID_SKIP_DEVELOPMENT_TARGETS))
+    ADD_SUBDIRECTORY("Scripts")
+endif()
 ADD_SUBDIRECTORY("XTool")
 ADD_SUBDIRECTORY("PluginMAX")
 ADD_SUBDIRECTORY("Terra")
@@ -24,5 +30,10 @@ if(NOT OPTION_FINAL_VERSION)
     ADD_SUBDIRECTORY("TriggerEditor")
 ENDIF()
 
-add_executable(perimeter ${PERIMETER_EXE_FLAGS})
+IF(ANDROID)
+    add_library(perimeter SHARED)
+ELSE()
+    add_executable(perimeter ${PERIMETER_EXE_FLAGS})
+ENDIF()
+
 ADD_SUBDIRECTORY("Game")
