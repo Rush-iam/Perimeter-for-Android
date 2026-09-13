@@ -120,7 +120,7 @@ if(OPTION_SOKOL AND NOT PERIMETER_WINDOWS AND OPTION_SOKOL_API MATCHES "D3D11")
     set(NEED_DXVK ON)
 endif()
 
-if(NEED_DXVK)
+if(NEED_DXVK AND NOT PERIMETER_DXVK_D3D9_TARGET)
     #For non windows we use DXVK to provide headers and impl
     MESSAGE("Using DXVK for D3D API")
 
@@ -219,6 +219,13 @@ if(NEED_DXVK)
     #This way dxvk will be fetched and compiled before Render
     add_dependencies(Render dxvk)
     target_include_directories(Render PUBLIC "${DXVK_INCLUDE_DIRS}")
+endif()
+
+# Android supplies an already-configured DXVK target from its wrapper. Keep
+# the normal desktop ExternalProject path above as the default everywhere else.
+if(OPTION_D3D9 AND PERIMETER_DXVK_D3D9_TARGET)
+    set(Render_LINK_LIBS ${Render_LINK_LIBS} ${PERIMETER_DXVK_D3D9_TARGET})
+    target_include_directories(Render PUBLIC "d3dx9")
 endif()
 
 IF (OPTION_SOKOL)

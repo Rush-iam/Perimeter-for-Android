@@ -432,13 +432,13 @@ bool AVWrapper::setupAudioConverter(AVSampleFormat dst_format, int dst_channels,
         //Nothing to setup since there is no codec
         return false;
     }
+#ifdef PERIMETER_FFMPEG_MOVIE
     if (filterGraph) {
         avfilter_graph_free(&filterGraph);
     }
     filterGraph = nullptr;
     buffersrcCtx = nullptr;
     buffersinkCtx = nullptr;
-#ifdef PERIMETER_FFMPEG_MOVIE
     swrFormat = dst_format != 0 ? dst_format : audioCodecCtx->sample_fmt;
     int num_channel = dst_channels != 0 ? dst_channels : audioCodecCtx->ch_layout.nb_channels;
     av_channel_layout_default(&swrChannelLayout, num_channel);
@@ -724,11 +724,19 @@ int AVWrapper::getVideoCodecHeight() const {
 }
 
 int AVWrapper::getVideoWidth() const {
+#ifdef PERIMETER_FFMPEG_MOVIE
     return swsCtx ? swsWidth : videoCodecCtx->width;
+#else
+    return videoCodecCtx->width;
+#endif
 }
 
 int AVWrapper::getVideoHeight() const {
+#ifdef PERIMETER_FFMPEG_MOVIE
     return swsCtx ? swsHeight : videoCodecCtx->height;
+#else
+    return videoCodecCtx->height;
+#endif
 }
 
 int AVWrapper::getVideoBPP() const {

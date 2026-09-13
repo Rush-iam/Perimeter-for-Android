@@ -5,7 +5,33 @@ if (MINGW)
 endif ()
 
 message("SDL version: ${OPTION_SDL}")
-if (OPTION_SDL MATCHES "SDL2")
+if (ANDROID)
+    # On Android, we expect SDL2 to be provided by the parent project via FetchContent
+    if (TARGET SDL2::SDL2)
+        set(PERIMETER_SDL_LIBRARY SDL2::SDL2)
+
+        # Add extra SDL2 libraries if they exist
+        set(PERIMETER_SDL_EXTRA_LIBRARIES "")
+        if (TARGET SDL2_net::SDL2_net)
+            list(APPEND PERIMETER_SDL_EXTRA_LIBRARIES SDL2_net::SDL2_net)
+        endif()
+        if (TARGET SDL2_mixer::SDL2_mixer)
+            list(APPEND PERIMETER_SDL_EXTRA_LIBRARIES SDL2_mixer::SDL2_mixer)
+        endif()
+        if (TARGET SDL2_image::SDL2_image)
+            list(APPEND PERIMETER_SDL_EXTRA_LIBRARIES SDL2_image::SDL2_image)
+        endif()
+
+        # Ensure the include directory is visible to the engine
+        get_target_property(SDL2_INCLUDE_DIRS SDL2::SDL2 INTERFACE_INCLUDE_DIRECTORIES)
+        include_directories(${SDL2_INCLUDE_DIRS})
+
+        set(PERIMETER_SDL_MAIN_LIBRARY "")
+        message("Using SDL2 targets from parent project. Includes: ${SDL2_INCLUDE_DIRS}")
+    else()
+        message(FATAL_ERROR "SDL2::SDL2 target not found. Ensure FetchContent is set up in parent CMakeLists.txt")
+    endif()
+elseif (OPTION_SDL MATCHES "SDL2")
     if (MSVC_CL_BUILD)
         #Specifics to MSVC+VCPKG
         FIND_PACKAGE(SDL2 CONFIG REQUIRED)
