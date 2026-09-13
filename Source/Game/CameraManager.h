@@ -85,7 +85,9 @@ public:
     bool shift(const cCamera* originCamera, const Vect3f& originCoordinatePos,
                const Vect3f& originPos, const Vect2f& mousePos);
 	void controlQuant();
-	void mouseWheel(int delta);
+	// Accept fractional scroll input so touch gestures and precision touchpads can
+	// control zoom proportionally instead of being reduced to wheel ticks.
+	void mouseWheel(float delta);
 	void quant(float mouseDeltaX, float mouseDeltaY, float delta_time, bool tilting);
 
 	void SetCameraFollow(terUnitBase* unit, int transitionTime = 0);
@@ -97,6 +99,7 @@ public:
 
     bool cursorTrace(const Vect2f& cursor, Vect3f& trace) const;
     static bool cursorTrace(const cCamera* camera, const Vect2f& cursor, Vect3f* trace, bool ignore_height, bool ignore_bounds);
+    static bool cursorTraceCameraDragPlane(const cCamera* camera, const Vect2f& cursor, Vect3f* trace);
 
 	bool restricted() const { return restricted_; }
 	void setRestriction(bool restricted) { restricted_ = restricted; }

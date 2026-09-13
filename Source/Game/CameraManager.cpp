@@ -34,6 +34,34 @@ const float CAMERA_ZOOM_MAX = CAMERA_MAX_HEIGHT / 2.0f;
 const float CAMERA_ZOOM_MIN = CAMERA_MIN_HEIGHT + 100.0f;
 const float CAMERA_ZOOM_TERRAIN_THRESOLD1 = CAMERA_ZOOM_MIN + CAMERA_ZOOM_GROUND_MAX;
 const float CAMERA_ZOOM_TERRAIN_THRESOLD2 = CAMERA_ZOOM_MAX;
+// One normalized scroll unit is one mTwoFingerZoomStep on Android.
+const float CAMERA_ZOOM_SCROLL_DISTANCE = 50.0f;
+
+/*
+ * Map dragging has always traced against the flat zero-ground plane.  The
+ * general scene trace returns an integer terrain-cell hit, which makes camera
+ * dragging advance one cell at a time.  Keep regular picking unchanged and
+ * use the exact plane intersection only for CTRL_CAMERA_MOUSE_MOVE.
+ */
+bool terCameraType::cursorTraceCameraDragPlane(const cCamera* camera, const Vect2f& cursor, Vect3f* trace)
+{
+    Vect3f rayOrigin;
+    Vect3f rayDirection;
+    camera->GetWorldRay(cursor, rayOrigin, rayDirection);
+
+    if (xm::abs(rayDirection.z) <= FLT_EPS) {
+        return false;
+    }
+
+    float distance = (FieldCluster::ZeroGround - rayOrigin.z) / rayDirection.z;
+    if (distance < 0.0f) {
+        return false;
+    }
+
+    *trace = rayOrigin + rayDirection * distance;
+    trace->z = FieldCluster::ZeroGround;
+    return true;
+}
 
 void SetCameraPosition(cCamera *UCamera,const MatXf& Matrix)
 {
@@ -410,13 +438,7 @@ bool terCameraType::shift(const cCamera* originCamera, const Vect3f& originCamer
     }
 
     Vect3f worldPos;
-    if (!terCameraType::cursorTrace(
-        originCamera,
-        mousePos,
-        &worldPos,
-        true,
-        true
-    )) return false;
+    if (!cursorTraceCameraDragPlane(originCamera, mousePos, &worldPos)) return false;
     
     //Take the current projected world pos from mouse at "worldPos", get delta from origin world pos at "originWorldPos"
     //and reverse it, so it looks like player is dragging the map, then add the original camera coordinate's pos
@@ -426,15 +448,19 @@ bool terCameraType::shift(const cCamera* originCamera, const Vect3f& originCamer
     return true;
 }
 
-void terCameraType::mouseWheel(int delta)
+void terCameraType::mouseWheel(float delta)
 {
 	if (gameShell->isCutSceneMode()) {
 		return;
 	}
-	if(delta > 0)
-		cameraZoomForce -= CAMERA_ZOOM_SPEED_DELTA;
-	else if(delta < 0)
-		cameraZoomForce += CAMERA_ZOOM_SPEED_DELTA;
+	// Scroll and pinch gestures are positional controls: applying their delta
+	// directly makes a given finger separation change produce the same zoom at
+	// every gesture speed. Keyboard zoom continues to use force and inertia.
+	cameraZoomForce = 0.0f;
+	cameraZoomVelocity = 0.0f;
+	coordinate().distance() -= delta * CAMERA_ZOOM_SCROLL_DISTANCE;
+	coordinate().check(restricted());
+	update();
 }
 
 int tilting_count = 0;

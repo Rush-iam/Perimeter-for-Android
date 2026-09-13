@@ -1133,7 +1133,7 @@ void GameShell::EventHandler(SDL_Event& event) {
         }
         case SDL_MOUSEWHEEL: {
             bool normal = event.wheel.direction == SDL_MOUSEWHEEL_NORMAL;
-            int delta = event.wheel.y * (normal ? 1 : -1);
+            float delta = event.wheel.preciseY * (normal ? 1.0f : -1.0f);
             if (delta != 0) {
                 MouseWheel(delta);
             }
@@ -2159,19 +2159,19 @@ void GameShell::MouseRightUnpressed(const Vect2f& pos)
 	}
 }
 
-void GameShell::MouseWheel(int delta)
+void GameShell::MouseWheel(float delta)
 {
-	if(!_bMenuMode && GameActive && _shellIconManager.IsInterface() && !isScriptReelEnabled() && !cameraMouseShift) {
+	if(!_bMenuMode && GameActive && _shellIconManager.IsInterface() && !isScriptReelEnabled()) {
         CChatInfoWindow* chatInfo = (CChatInfoWindow*) _shellIconManager.GetWnd(SQSH_CHAT_INFO_ID);
         if (!chatInfo || !chatInfo->isVisible() || !chatInfo->HitTest(mousePosition().x+0.5f, mousePosition().y+0.5f)) {
             terCamera->mouseWheel(delta);
         }
     }
 	if (historyScene.ready()) {
-		historyScene.getCamera()->mouseWheel(delta);
+		historyScene.getCamera()->mouseWheel(delta > 0.0f ? 1 : -1);
 	}
 
-	_shellIconManager.OnMouseWheel( delta );
+	_shellIconManager.OnMouseWheel(delta > 0.0f ? 1 : -1);
 
 	m_ShellDispatcher.OnMouseMove(mousePosition().x+0.5f, mousePosition().y+0.5f);
 	_shellCursorManager.OnMouseMove(mousePosition().x+0.5f, mousePosition().y+0.5f);
@@ -3043,12 +3043,10 @@ void GameShell::editParameters()
 
 void GameShell::setCameraMouseShift(bool _cameraMouseShift) {
     if (_cameraMouseShift) {
-        if (terCameraType::cursorTrace(
+        if (terCameraType::cursorTraceCameraDragPlane(
                 terCamera->GetCamera(),
                 mousePosition_,
-                &mapMoveStartWorldPos_,
-                true,
-                true
+                &mapMoveStartWorldPos_
         )) {
             terCamera->GetCamera()->SetCopy(mapMoveStartCamera_);
             mapMoveStartCameraPos_ = terCamera->coordinate().position();
