@@ -89,6 +89,13 @@ private:
     //SDL context
 #ifdef PERIMETER_SOKOL_GL
     SDL_GLContext sdl_gl_context = nullptr;
+    void ConfigureSwapInterval();
+    void SwapGLWindow();
+#ifdef __ANDROID__
+    bool swappy_initialized = false;
+    bool swappy_frame_pacing = false;
+    bool swappy_swap_failure_logged = false;
+#endif
 #endif
 #ifdef SOKOL_METAL
     friend void sokol_metal_render_callback();

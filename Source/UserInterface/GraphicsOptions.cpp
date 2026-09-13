@@ -124,6 +124,7 @@ void GraphOptions::load(const char* sectionName, const char* iniFileName) {
     fogEnable = fogEnableVal != 0;
     int vsyncEnableVal = 1;
     iniManager.getInt("Graphics", "VSync", vsyncEnableVal);
+    check_command_line_parameter("VSync", vsyncEnableVal);
     vsyncEnable = vsyncEnableVal != 0;
     
     std::set<DisplayMode> resSet;

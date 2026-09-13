@@ -400,7 +400,7 @@ int cSokolRender::Flush(bool wnd) {
     androidFrameTimingPresentStart();
 #endif
 #ifdef PERIMETER_SOKOL_GL
-    SDL_GL_SwapWindow(sdl_window);
+    SwapGLWindow();
 #endif
 #ifdef SOKOL_D3D11
     uint32_t sync_interval = RenderMode & RENDERDEVICE_MODE_VSYNC ? 1 : 0;

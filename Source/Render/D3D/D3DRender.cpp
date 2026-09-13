@@ -413,6 +413,14 @@ void cD3DRender::UpdateRenderMode()
 	d3dpp.BackBufferCount			= (d3dpp.Windowed | (RenderMode&RENDERDEVICE_MODE_ONEBACKBUFFER)) ? 1 : 2;
     if (RenderMode & RENDERDEVICE_MODE_VSYNC) {
         d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
+#ifdef __ANDROID__
+        int requested_interval = 1;
+        check_command_line_parameter("android_vsync_interval", requested_interval);
+        if (requested_interval == 2) {
+            d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_TWO;
+            fprintf(stdout, "D3D presentation interval: 2\n");
+        }
+#endif
     } else {
         d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
     }

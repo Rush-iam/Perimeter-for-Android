@@ -13,9 +13,87 @@
 #include "SokolShaders.h"
 #include "RenderTracker.h"
 #include <SDL_hints.h>
+#include <cstdlib>
 
 #ifdef PERIMETER_SOKOL_GL
 #include <SDL_opengl.h>
+#ifdef __ANDROID__
+#include <SDL_system.h>
+#include <SDL_syswm.h>
+#include <swappy/swappyGL.h>
+#include <swappy/swappyGL_extra.h>
+#endif
+
+void cSokolRender::ConfigureSwapInterval() {
+    int swap_interval = RenderMode & RENDERDEVICE_MODE_VSYNC ? 1 : 0;
+#ifdef __ANDROID__
+    int requested_interval = 1;
+    if (const char* value = check_command_line("android_vsync_interval")) {
+        requested_interval = std::atoi(value);
+    }
+    if (swap_interval != 0 && requested_interval == 2) {
+        if (!swappy_initialized) {
+            SDL_SysWMinfo window_info = {};
+            SDL_VERSION(&window_info.version);
+            auto* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+            auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
+            if (env != nullptr && activity != nullptr
+                && SDL_GetWindowWMInfo(sdl_window, &window_info) == SDL_TRUE
+                && window_info.subsystem == SDL_SYSWM_ANDROID
+                && SwappyGL_init(env, activity)) {
+                swappy_initialized = true;
+                if (!SwappyGL_setWindow(window_info.info.android.window)) {
+                    fprintf(stderr, "Swappy failed to bind the Android window\n");
+                    SwappyGL_destroy();
+                    swappy_initialized = false;
+                }
+            } else {
+                fprintf(stderr, "Swappy initialization failed: %s\n", SDL_GetError());
+            }
+        }
+        if (swappy_initialized) {
+            // Pace presentation against Android's frame timeline
+            SDL_GL_SetSwapInterval(1);
+            SwappyGL_setAutoSwapInterval(false);
+            const uint64_t refresh_period_ns = SwappyGL_getRefreshPeriodNanos();
+            const uint64_t target_period_ns = refresh_period_ns * 2;
+            SwappyGL_setSwapIntervalNS(target_period_ns);
+            swappy_frame_pacing = true;
+            swappy_swap_failure_logged = false;
+            fprintf(stdout,
+                    "Sokol frame pacing: Swappy interval %.3f ms (2 x %.3f ms refresh)\n",
+                    target_period_ns / 1000000.0, refresh_period_ns / 1000000.0);
+            return;
+        }
+    }
+    swappy_frame_pacing = false;
+#endif
+    if (SDL_GL_SetSwapInterval(swap_interval) != 0) {
+        fprintf(stderr, "Requested GL swap interval %d is unsupported: %s\n",
+                swap_interval, SDL_GetError());
+        swap_interval = swap_interval == 0 ? 0 : 1;
+        SDL_GL_SetSwapInterval(swap_interval);
+    }
+    fprintf(stdout, "GL swap interval requested: %d, SDL reports: %d\n",
+            swap_interval, SDL_GL_GetSwapInterval());
+}
+
+void cSokolRender::SwapGLWindow() {
+#ifdef __ANDROID__
+    if (swappy_frame_pacing) {
+        const EGLDisplay display = eglGetCurrentDisplay();
+        const EGLSurface surface = eglGetCurrentSurface(EGL_DRAW);
+        const bool swapped = display != EGL_NO_DISPLAY && surface != EGL_NO_SURFACE
+                             && SwappyGL_swap(display, surface);
+        if (!swapped && !swappy_swap_failure_logged) {
+            fprintf(stderr, "Swappy presentation failed (EGL error 0x%x)\n", eglGetError());
+            swappy_swap_failure_logged = true;
+        }
+        return;
+    }
+#endif
+    SDL_GL_SwapWindow(sdl_window);
+}
 #endif
 
 #ifdef SOKOL_D3D11
@@ -128,6 +206,7 @@ int cSokolRender::Init(int xScr, int yScr, int mode, SDL_Window* wnd, int Refres
     if (sdl_gl_context == nullptr) {
         ErrH.Abort("Error creating SDL GL Context", XERR_CRITICAL, 0, SDL_GetError());
     }
+    ConfigureSwapInterval();
     printf("GPU vendor: %s, renderer: %s\n", glGetString(GL_VENDOR), glGetString(GL_RENDERER));
     
     swapchain.gl.framebuffer = 0;
@@ -361,7 +440,7 @@ bool cSokolRender::ChangeSize(int xScr, int yScr, int mode) {
     
     //Set vsync
 #ifdef PERIMETER_SOKOL_GL
-    SDL_GL_SetSwapInterval(RenderMode & RENDERDEVICE_MODE_VSYNC ? 1 : 0);
+    ConfigureSwapInterval();
 #endif
     
     //Update swapchain
@@ -427,6 +506,15 @@ int cSokolRender::Done() {
     }
 #endif
 #ifdef PERIMETER_SOKOL_GL
+#ifdef __ANDROID__
+    if (swappy_initialized) {
+        RenderSubmitEvent(RenderEvent::DONE, "Sokol Swappy shutdown");
+        swappy_frame_pacing = false;
+        swappy_swap_failure_logged = false;
+        SwappyGL_destroy();
+        swappy_initialized = false;
+    }
+#endif
     if (sdl_gl_context != nullptr) {
         RenderSubmitEvent(RenderEvent::DONE, "Sokol GL shutdown");
         SDL_GL_DeleteContext(sdl_gl_context);
