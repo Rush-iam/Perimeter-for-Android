@@ -18,6 +18,9 @@
 #include "DrawBuffer.h"
 #include "RenderTracker.h"
 #include "RenderUtils.h"
+#ifdef __ANDROID__
+#include "AndroidFrameTiming.h"
+#endif
 
 #ifdef GPX
 #include <c/gamepix.h>
@@ -387,9 +390,15 @@ int cSokolRender::Flush(bool wnd) {
     }
 
     //Commit it
+#ifdef __ANDROID__
+    androidFrameTimingRenderSubmit();
+#endif
     sg_commit();
 
     //Swap the window
+#ifdef __ANDROID__
+    androidFrameTimingPresentStart();
+#endif
 #ifdef PERIMETER_SOKOL_GL
     SDL_GL_SwapWindow(sdl_window);
 #endif
@@ -399,6 +408,9 @@ int cSokolRender::Flush(bool wnd) {
 #endif
 #ifdef SOKOL_METAL
     sokol_metal_draw();
+#endif
+#ifdef __ANDROID__
+    androidFrameTimingPresentEnd();
 #endif
 
     ClearPooledResources(MAX_POOLED_RESOURCES_LIFE);

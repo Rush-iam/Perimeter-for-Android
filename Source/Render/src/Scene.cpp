@@ -14,6 +14,10 @@
 #include "CChaos.h"
 #include "../client/Silicon.h"
 
+#if defined(__ANDROID__)
+#include "AndroidFrameTiming.h"
+#endif
+
 FILE *gb_fSceneLog=NULL;
 
 cScene::cScene() : cUnknownClass(KIND_SCENE)
@@ -205,6 +209,9 @@ void cScene::Draw(cCamera *DrawNode)
 			(gb_RenderDevice->GetRenderMode()&RENDERDEVICE_MODE_STRENCIL))
 			AddStrencilCamera(DrawNode);
 	}
+	#if defined(__ANDROID__)
+	const uint64_t tilemapPreDrawStartNs = androidFrameTimingNowNs();
+	#endif
 
 	if(TileMap)
 	{
@@ -214,6 +221,9 @@ void cScene::Draw(cCamera *DrawNode)
 		if(!disable_tilemap_visible_test)
 			DrawNode->EnableGridTest(TileNumber.x,TileNumber.y,tile_size);
 	}
+	#if defined(__ANDROID__)
+	androidFrameTimingRecordCompactWork("scene_tilemap_predraw", tilemapPreDrawStartNs, androidFrameTimingNowNs());
+	#endif
 
     grid.DisableChanges(true);
     for (auto el : grid) {

@@ -6,6 +6,10 @@
 #include "TileMapRender.h"
 #include "FileImage.h"
 
+#if defined(__ANDROID__)
+#include "AndroidFrameTiming.h"
+#endif
+
 #ifdef PERIMETER_D3D9
 #include "D3DRender.h"
 #endif
@@ -172,7 +176,14 @@ void cTileMapRender::PreDraw(cCamera* DrawNode) {
 
     bumpTilesDeath();
 
+#if defined(__ANDROID__)
+    const uint64_t calcTileMapStartNs = androidFrameTimingNowNs();
+#endif
+
     CalcTileMap(DrawNode);
+    #if defined(__ANDROID__)
+    androidFrameTimingRecordCompactWork("tilemap_predraw_calc", calcTileMapStartNs, androidFrameTimingNowNs());
+    #endif
 }
 
 void cTileMapRender::CalcTileMap(cCamera* DrawNode) {
@@ -257,6 +268,9 @@ void cTileMapRender::CalcTileMap(cCamera* DrawNode) {
             }
         }
     }
+#if defined(__ANDROID__)
+    const uint64_t borderRebuildStartNs = androidFrameTimingNowNs();
+#endif
 
 //stop_timer(Calc_TileMap, 1);
 
@@ -316,6 +330,9 @@ void cTileMapRender::CalcTileMap(cCamera* DrawNode) {
     }
     
     tilemap->GetTerra()->UnlockColumn();
+#if defined(__ANDROID__)
+    androidFrameTimingRecordCompactWork("tilemap_border_rebuild", borderRebuildStartNs, androidFrameTimingNowNs());
+#endif
 }
 
 int cTileMapRender::bumpNumVertices(int lod) {
@@ -451,6 +468,9 @@ void cTileMapRender::SaveUpdateStat()
 
 void cTileMapRender::DrawBump(cCamera* DrawNode,eBlendMode MatMode,TILEMAP_DRAW tile_draw,bool shadow)
 {
+#if defined(__ANDROID__)
+    const uint64_t drawBumpStartNs = androidFrameTimingNowNs();
+#endif
     cCamera* pShadowMapCamera=DrawNode->FindCildCamera(ATTRCAMERA_SHADOWMAP);
     int reflection = DrawNode->GetAttribute(ATTRCAMERA_REFLECTION);
     bool use_shadow_map=false;
@@ -754,4 +774,7 @@ OutText(0, 80, msg);
 		gb_RenderDevice->FlushPrimitive3D();
 	}
     */
+#if defined(__ANDROID__)
+    androidFrameTimingRecordCompactWork("tilemap_draw_bump", drawBumpStartNs, androidFrameTimingNowNs());
+#endif
 }

@@ -8,6 +8,10 @@
 #include "TileMapBumpTile.h"
 #include "TileMapTexturePool.h"
 
+#if defined(__ANDROID__)
+#include "AndroidFrameTiming.h"
+#endif
+
 float sBumpTile::SetVertexZ(TerraInterface* terra,int x,int y)
 {
     float zi=terra->GetZf(x,y);
@@ -139,15 +143,31 @@ bool sBumpTile::TakeInitialTextureReuse()
 
 void sBumpTile::Calc(bool update_texture, bool reuse_texture)
 {
+    #if defined(__ANDROID__)
+    const uint64_t calcStartNs = androidFrameTimingNowNs();
+    #endif
     if(update_texture && !reuse_texture) {
+        #if defined(__ANDROID__)
+        const uint64_t textureStartNs = androidFrameTimingNowNs();
+        #endif
         CalcTexture();
+        #if defined(__ANDROID__)
+        androidFrameTimingAccumulateBumpTileTexture(LOD, textureStartNs, androidFrameTimingNowNs());
+        #endif
     }
     CalcPoint(!update_texture, update_texture);
     init = true;
+    #if defined(__ANDROID__)
+    androidFrameTimingAccumulateBumpTileCalc(calcStartNs, androidFrameTimingNowNs());
+    androidFrameTimingRecordBumpTileCalc();
+    #endif
 }
 
 void sBumpTile::CalcPoint(bool reuse_point_players, bool invalidate_topology)
 {
+	#if defined(__ANDROID__)
+	const uint64_t meshStartNs = androidFrameTimingNowNs();
+	#endif
     Column** columns = tilemap->GetColumn();
     Vect2i pos=tile_pos;
 
@@ -213,6 +233,10 @@ void sBumpTile::CalcPoint(bool reuse_point_players, bool invalidate_topology)
             }
         }
     }
+    #if defined(__ANDROID__)
+    const uint64_t regionScanStartNs = androidFrameTimingNowNs();
+    androidFrameTimingAccumulateBumpTilePointInit(meshStartNs, regionScanStartNs);
+    #endif
 
     if (!reuse_point_players) {
         boundary_region_candidates.clear();
@@ -383,6 +407,11 @@ void sBumpTile::CalcPoint(bool reuse_point_players, bool invalidate_topology)
     if (!reuse_point_players)
         boundary_region_candidates_valid = true;
 
+    #if defined(__ANDROID__)
+    const uint64_t topologyStartNs = androidFrameTimingNowNs();
+    androidFrameTimingAccumulateBumpTileRegionScan(regionScanStartNs, topologyStartNs);
+    androidFrameTimingAccumulateBumpTilePointRegion(meshStartNs, topologyStartNs);
+    #endif
     std::vector<std::vector<sPolygon>>& index = render->GetIndexBuffer();
     const bool reuse_topology = !invalidate_topology && topology_valid;
     const bool reuse_interior_topology =
@@ -564,6 +593,11 @@ void sBumpTile::CalcPoint(bool reuse_point_players, bool invalidate_topology)
     float vy_base=vStart-yStart*vy_step;
 
 
+    #if defined(__ANDROID__)
+    const uint64_t vertexWriteStartNs = androidFrameTimingNowNs();
+    androidFrameTimingAccumulateBumpTileTopology(topologyStartNs, vertexWriteStartNs);
+    androidFrameTimingAccumulateBumpTileMesh(meshStartNs, vertexWriteStartNs);
+    #endif
     BUMP_VTXTYPE* vb = reinterpret_cast<BUMP_VTXTYPE*>(LockVB());
 
     TerraInterface* terra = tilemap->GetTerra();
@@ -592,6 +626,10 @@ void sBumpTile::CalcPoint(bool reuse_point_players, bool invalidate_topology)
     }
 
     UnlockVB();
+    #if defined(__ANDROID__)
+    androidFrameTimingAccumulateBumpTileVertexWrite(vertexWriteStartNs, androidFrameTimingNowNs());
+    const uint64_t indexUploadStartNs = androidFrameTimingNowNs();
+    #endif
 
     ////////////////////set index buffer
     DeleteIndex();
@@ -641,6 +679,9 @@ void sBumpTile::CalcPoint(bool reuse_point_players, bool invalidate_topology)
         VISASSERT(render->bumpNumIndex(LOD)==sum_index);
 #endif
     }
+    #if defined(__ANDROID__)
+    androidFrameTimingAccumulateBumpTileIndexUpload(indexUploadStartNs, androidFrameTimingNowNs());
+    #endif
 }
 
 int sBumpTile::FixLine(VectDelta* points, int ddv)

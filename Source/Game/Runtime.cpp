@@ -56,6 +56,9 @@
 #include "GraphicsOptions.h"
 #include "GameContent.h"
 #include "SoundScript.h"
+#ifdef __ANDROID__
+#include "AndroidFrameTiming.h"
+#endif
 
 #ifdef GPX
 extern void pollGpxEvents();
@@ -449,6 +452,9 @@ bool HTManager::LogicQuant()
 
 void HTManager::GraphQuant()
 {
+#ifdef __ANDROID__
+	androidFrameTimingFrameStart();
+#endif
 	if(universe())
 	{
 		int quant_counter=universe()->quantCounter();
@@ -1041,7 +1047,7 @@ void show_help() {
 }
 
 //------------------------------
-#if !defined(_WIN32) && !defined(GPX)
+#if !defined(_WIN32) && !defined(GPX) && !defined(__ANDROID__)
 int main(int argc, char *argv[]) {
     //Call SDL main init
     SDL_SetMainReady();
@@ -1147,6 +1153,15 @@ int SDL_main(int argc, char *argv[])
     
     //We need to copy argc/argv so they can be accessed later via check_command_line etc
     setup_argcv(argc, argv);
+#ifdef __ANDROID__
+    int frame_timing_enabled = 0;
+    int android_vsync_interval = 1;
+    check_command_line_parameter("frame_timing", frame_timing_enabled);
+    check_command_line_parameter("android_vsync_interval", android_vsync_interval);
+    androidFrameTimingConfigure(frame_timing_enabled != 0);
+    androidDxvkDiagnosticConfigure(check_command_line("dxvk_max_frame_latency"),
+                                   android_vsync_interval == 2);
+#endif
 
     //Init clock
     initclock();

@@ -764,7 +764,14 @@ int cD3DRender::Flush(bool wnd)
 	RestoreDeviceIfLost();
 
 	RECT rect { 0, 0, ScreenSize.x, ScreenSize.y };
+#ifdef __ANDROID__
+	androidFrameTimingRenderSubmit();
+	androidFrameTimingPresentStart();
+#endif
 	lpD3DDevice->Present(&rect, &rect, wnd ? hWnd : nullptr, nullptr);
+#ifdef __ANDROID__
+	androidFrameTimingPresentEnd();
+#endif
 
 	if(Option_DrawNumberPolygon) 
 	{
@@ -1432,6 +1439,9 @@ void cD3DRender::SubmitDrawBuffer(DrawBuffer* db, DrawRange* range) {
 }
 
 void cD3DRender::SubmitBuffers(ePrimitiveType primitive, VertexBuffer* vb, size_t vertices, IndexBuffer* ib, size_t indices, DrawRange* range) {
+#ifdef __ANDROID__
+    const uint64_t submitBuffersStartNs = androidFrameTimingNowNs();
+#endif
     if (vb->dirty) {
         UpdateD3DVertexBuffer(vb, vertices * vb->VertexSize);
     } else if (!vb->d3d) {
@@ -1481,6 +1491,9 @@ void cD3DRender::SubmitBuffers(ePrimitiveType primitive, VertexBuffer* vb, size_
         xassert(0);
         RDCALL(gb_RenderDevice3D->lpD3DDevice->DrawPrimitive(d3dType, offset, vertices));
     }
+#ifdef __ANDROID__
+    androidFrameTimingAccumulateD3DSubmit(submitBuffersStartNs, androidFrameTimingNowNs());
+#endif
 }
 
 void cD3DRender::SetGlobalFog(const sColor4f &color,const Vect2f &v)

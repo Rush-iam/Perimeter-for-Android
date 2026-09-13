@@ -5,6 +5,10 @@
 #include "codepages/codepages.h"
 #include "xutil.h"
 
+#if defined(__ANDROID__)
+#include "AndroidFrameTiming.h"
+#endif
+
 BEGIN_ENUM_DESCRIPTOR(eGameKeysControl, "eGameKeysControl")
 REGISTER_ENUM(CTRL_TIME_NORMAL, "CTRL_TIME_NORMAL");
 REGISTER_ENUM(CTRL_TIME_DEC, "CTRL_TIME_DEC");
@@ -171,6 +175,9 @@ bool ControlsConverter::is_custom(uint32_t ctrl) const {
 #ifndef GPX
 bool ControlsConverter::pressed(uint32_t ctrl) const {
     if (ctrl < CTRL_MAX) {
+#if defined(__ANDROID__)
+        if (androidCameraMotionControlHeld(ctrl)) return true;
+#endif
         return CtrlToKey[ctrl].pressed();
     } else {
         xassert(0);
