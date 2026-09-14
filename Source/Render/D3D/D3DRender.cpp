@@ -24,7 +24,7 @@
 #include <android/log.h>
 #include "AndroidFrameTiming.h"
 #include <cstdlib>
-extern "C" void dxvkSetSdl2Window(SDL_Window*) __attribute__((weak));
+#include "AndroidDxvkLoader.h"
 #endif
 
 static uint32_t ColorConvertARGB(const sColor4c& c) { return CONVERT_COLOR_TO_ARGB(c.v); };
@@ -212,13 +212,18 @@ int cD3DRender::Init(int xscr,int yscr,int Mode, SDL_Window* wnd, int RefreshRat
     //DXVK now needs DXVK_WSI_DRIVER to be set, we set SDL2 with replace=0 so that user may change it
     setenv("DXVK_WSI_DRIVER", "SDL2", 0);
 #if defined(__ANDROID__)
-    if (dxvkSetSdl2Window)
-        dxvkSetSdl2Window(sdl_window);
+    androidDxvkSetSdl2Window(sdl_window);
 #endif
 #endif
 
 	if(!lpD3D)
-		RDERR((lpD3D=Direct3DCreate9(D3D_SDK_VERSION))==0);
+		RDERR((lpD3D=
+#if defined(__ANDROID__)
+            androidDxvkCreateD3D9(D3D_SDK_VERSION)
+#else
+            Direct3DCreate9(D3D_SDK_VERSION)
+#endif
+        )==0);
 		//RDERR((lpD3D=Direct3DCreate9(D3D9b_SDK_VERSION))==0);
 		
 	if(lpD3D==0) return 2;
