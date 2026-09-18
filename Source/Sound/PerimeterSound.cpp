@@ -8,6 +8,10 @@
 #include "Sample.h"
 #include "files/files.h"
 
+#ifdef __ANDROID__
+Mix_Chunk* AndroidLoadWavChunk(const char* path);
+#endif
+
 //Audio formats
 #define AUDIO_FORMAT_8 AUDIO_S8
 #if SDL_BYTEORDER == SDL_LIL_ENDIAN
@@ -285,7 +289,14 @@ SND_Sample* SNDLoadSound(const std::string& fxname)
         return nullptr;
     }
     
+#ifdef __ANDROID__
+    // AndroidLoadWavChunk resamples common mono effects before duplicating them
+    // to stereo, avoiding Mix_LoadWAV's more expensive stereo-first conversion
+    // during eager startup sound loading while preserving the mixer format.
+    Mix_Chunk* chunk = AndroidLoadWavChunk(path.c_str());
+#else
     Mix_Chunk* chunk = Mix_LoadWAV(path.c_str());
+#endif
     if(!chunk) {
         fprintf(stderr, "Mix_LoadWAV error %s : %s\n", fxname.c_str(), Mix_GetError());
         return nullptr;
