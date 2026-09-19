@@ -60,7 +60,10 @@ Vect3f normalizeColor(DWORD d)
 }
 
 uint8_t conv(float val) {
-    return static_cast<uint8_t>(val * 0x7F) & 0xFF;
+    val = (std::max)(-1.0f, (std::min)(1.0f, val));
+    int32_t signed_value = static_cast<int32_t>(val * 0x7F);
+    signed_value = (std::max)(-128, (std::min)(127, signed_value));
+    return static_cast<uint8_t>(static_cast<int8_t>(signed_value));
 }
 
 uint32_t from_rgba_qwvu(uint32_t val) {
