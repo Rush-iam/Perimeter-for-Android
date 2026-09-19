@@ -6,6 +6,8 @@
 #include "TileMapRender.h"
 #include "FileImage.h"
 #include "../../XTool/xutl.h"
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #if defined(__ANDROID__)
@@ -51,6 +53,16 @@ cTileMapRender::cTileMapRender(cTileMap *pTileMap)
     // The cache uses shared tilemap resources and is safe for both Android
     // renderers; Android launch options control whether it is enabled.
     lodCacheEnabled = cache && std::strcmp(cache, "1") == 0;
+    if (const char* hysteresis = check_command_line("tilemap_lod_hysteresis")) {
+        const float percent = static_cast<float>(std::atof(hysteresis));
+        if (std::isfinite(percent) && percent >= 0.0f && percent <= 50.0f)
+            lodHysteresis = percent * 0.01f;
+    }
+    if (const char* budget = check_command_line("tilemap_lod_rebuild_budget")) {
+        const int value = std::atoi(budget);
+        if (value >= 0 && value <= 64)
+            lodRebuildBudget = value;
+    }
 #endif
 
     visMap=new uint8_t[dxy];
@@ -285,6 +297,7 @@ void cTileMapRender::CalcTileMap(cCamera* DrawNode) {
     // create/update tiles' vertices/textures
     int n,k;
     int dn=tilemap->GetTileNumber().y,dk=tilemap->GetTileNumber().x;
+    int lodBudgetRemaining = lodRebuildBudget;
     cCamera* pNormalCamera = DrawNode->GetRoot();
     float lod_focus=Option_MapLevel * pNormalCamera->GetFocusViewPort().x;
     float DistLevelDetail[TILEMAP_LOD] = { // was: 1,2,4,6
@@ -329,7 +342,38 @@ void cTileMapRender::CalcTileMap(cCamera* DrawNode) {
                 if (iLod >= TILEMAP_LOD)
                     iLod = TILEMAP_LOD - 1;
 
+                // Keep an initialized tile at its current LOD while the
+                // camera remains inside a hysteresis band around the adjacent
+                // transition. Terrain updates and visibility remain immediate;
+                // only discrete LOD changes are delayed.
+                if (lodHysteresis > 0.0f && render->bumpTileValid(bumpTileID)) {
+                    const int currentLod = render->bumpTiles[bumpTileID]->LOD;
+                    if (iLod > currentLod &&
+                            dist < DistLevelDetail[currentLod] * (1.0f + lodHysteresis)) {
+                        iLod = currentLod;
+                    } else if (iLod < currentLod &&
+                            dist >= DistLevelDetail[currentLod - 1] * (1.0f - lodHysteresis)) {
+                        iLod = currentLod;
+                    }
+                }
+
                 vis_lod[k+n*dk]=iLod;
+
+                if (lodRebuildBudget > 0 && render->bumpTileValid(bumpTileID)) {
+                    const int currentLod = render->bumpTiles[bumpTileID]->LOD;
+                    if (currentLod != iLod) {
+                        if (lodBudgetRemaining > 0) {
+                            --lodBudgetRemaining;
+                        } else {
+                            // Keep the current geometry and advertise that LOD to
+                            // the border pass until a later frame can spend a
+                            // budget slot. Visibility and terrain updates remain
+                            // immediate; only this discrete LOD switch is deferred.
+                            vis_lod[tileIndex] = static_cast<char>(currentLod);
+                            iLod = currentLod;
+                        }
+                    }
+                }
 
                 // create/update render tile
                 if(render->bumpTileValid(bumpTileID) && render->bumpTiles[bumpTileID]->LOD!=iLod)

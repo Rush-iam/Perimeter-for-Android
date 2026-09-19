@@ -23,6 +23,8 @@ private:
     std::vector<cTilemapTexturePool*> bumpTexPools;
     class VertexPoolManager* vertexPoolManager = nullptr;
     class IndexPoolManager* indexPoolManager = nullptr;
+    float lodHysteresis = 0.0f;
+    int lodRebuildBudget = 0;
     IndexBuffer tilemapIB;
     int index_offset[TILEMAP_LOD];
     int index_size[TILEMAP_LOD];
