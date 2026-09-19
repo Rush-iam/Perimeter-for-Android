@@ -216,14 +216,13 @@ int cD3DRender::Init(int xscr,int yscr,int Mode, SDL_Window* wnd, int RefreshRat
 #endif
 #endif
 
-	if(!lpD3D)
-		RDERR((lpD3D=
+	if(!lpD3D) {
 #if defined(__ANDROID__)
-            androidDxvkCreateD3D9(D3D_SDK_VERSION)
+		RDERR((lpD3D = androidDxvkCreateD3D9(D3D_SDK_VERSION)) == 0);
 #else
-            Direct3DCreate9(D3D_SDK_VERSION)
+		RDERR((lpD3D = Direct3DCreate9(D3D_SDK_VERSION)) == 0);
 #endif
-        )==0);
+	}
 		//RDERR((lpD3D=Direct3DCreate9(D3D9b_SDK_VERSION))==0);
 		
 	if(lpD3D==0) return 2;
