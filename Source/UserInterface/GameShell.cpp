@@ -41,6 +41,9 @@
 
 #include "EditArchive.h"
 #include "XPrmArchive.h"
+#ifdef __ANDROID__
+#include "AndroidTouchInput.h"
+#endif
 #include "SoundScript.h"
 #include "BelligerentSelect.h"
 #include "files/files.h"
@@ -1035,6 +1038,21 @@ Vect2i GameShell::convertToScreenAbsolute(const Vect2f& pos)
 }
 
 void GameShell::EventHandler(SDL_Event& event) {
+#ifdef __ANDROID__
+    // Android touch gestures request camera pan directly instead of emulating a bound key.
+    if (event.type == androidTouchCameraDragEventType()) {
+        if (event.user.code != 0) {
+            if (!_bMenuMode && !reelManager.isVisible() && !isScriptReelEnabled() &&
+                !_shellIconManager.isCutSceneMode() && !cameraMouseTrack && !cameraMouseShift) {
+                setCameraMouseShift(true);
+            }
+        } else {
+            setCameraMouseShift(false);
+        }
+        return;
+    }
+#endif
+
     if (reelManager.isVisible()) {
         if (reelAbortEnabled) {
             switch (event.type) {
