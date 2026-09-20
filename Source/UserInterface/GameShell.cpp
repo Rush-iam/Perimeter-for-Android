@@ -43,6 +43,7 @@
 #include "XPrmArchive.h"
 #ifdef __ANDROID__
 #include "AndroidTouchInput.h"
+#include <cstring>
 #endif
 #include "SoundScript.h"
 #include "BelligerentSelect.h"
@@ -74,6 +75,10 @@ extern HistoryScene* historyScene;
 extern HistoryScene* bwScene;
 extern BGScene* bgScene;
 extern void PlayMusic(const char *str = 0);
+
+#ifdef __ANDROID__
+static float androidMenuWheelRemainder = 0.0f;
+#endif
 
 bool terEnableGDIPixel=false;
 
@@ -1041,6 +1046,7 @@ void GameShell::EventHandler(SDL_Event& event) {
 #ifdef __ANDROID__
     // Android touch gestures request camera pan directly instead of emulating a bound key.
     if (event.type == androidTouchCameraDragEventType()) {
+        androidMenuWheelRemainder = 0.0f;
         if (event.user.code != 0) {
             if (!_bMenuMode && !reelManager.isVisible() && !isScriptReelEnabled() &&
                 !_shellIconManager.isCutSceneMode() && !cameraMouseTrack && !cameraMouseShift) {
@@ -1077,6 +1083,32 @@ void GameShell::EventHandler(SDL_Event& event) {
         }
         return;
     }
+
+#ifdef __ANDROID__
+    if (event.type == androidTouchTwoFingerGestureEventType()) {
+        Uint32 packed = 0;
+        std::memcpy(&packed, &event.user.code, sizeof(packed));
+        const float verticalWheelDelta =
+            (static_cast<int>((packed >> 16) & 0xffff) - 32768) / 1024.0f;
+        const float pinchZoomDelta =
+            (static_cast<int>(packed & 0xffff) - 32768) / 1024.0f;
+
+        if (_bMenuMode) {
+            androidMenuWheelRemainder += verticalWheelDelta * 2.0f;
+            while (androidMenuWheelRemainder >= 1.0f) {
+                MouseWheel(1.0f);
+                androidMenuWheelRemainder -= 1.0f;
+            }
+            while (androidMenuWheelRemainder <= -1.0f) {
+                MouseWheel(-1.0f);
+                androidMenuWheelRemainder += 1.0f;
+            }
+        } else if (pinchZoomDelta != 0.0f) {
+            MouseWheel(pinchZoomDelta);
+        }
+        return;
+    }
+#endif
 
     //Sets the SDL2 text input mode according to current text edit mode in UI
     bool text_input_active = SDL_TRUE == SDL_IsTextInputActive();
