@@ -39,6 +39,9 @@ extern int terScreenRefresh;
 extern int terScreenIndex;
 extern int terVSyncEnable;
 extern int terGrabInput;
+#ifdef __ANDROID__
+extern int androidDisableEdgeScrolling;
+#endif
 
 extern int terMapReflection;
 extern int terObjectReflection;

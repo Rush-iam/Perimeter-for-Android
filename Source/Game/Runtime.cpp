@@ -113,6 +113,9 @@ float terGraphicsGamma = 1;
 int terGrabInput = 0;
 int terVSyncEnable = 1;
 int applicationRunBackground = 1;
+#ifdef __ANDROID__
+int androidDisableEdgeScrolling = 1;
+#endif
 
 int terDrawMeshShadow = 2;
 int terShadowType	= 0;

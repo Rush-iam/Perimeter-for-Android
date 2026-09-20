@@ -85,6 +85,9 @@ void PerimeterDataChannelLoad()
     check_command_line_parameter("VSync", terVSyncEnable);
     ini_no_check.getInt("Game","RunBackground", applicationRunBackground);
     check_command_line_parameter("RunBackground", applicationRunBackground);
+#ifdef __ANDROID__
+    check_command_line_parameter("android_disable_edge_scrolling", androidDisableEdgeScrolling);
+#endif
 
 	CAMERA_SCROLL_SPEED_DELTA = CAMERA_BORDER_SCROLL_SPEED_DELTA = ini.getInt("Game","ScrollRate");
 	CAMERA_MOUSE_ANGLE_SPEED_DELTA = ini_no_check.getFloat("Game","MouseLookRate");
