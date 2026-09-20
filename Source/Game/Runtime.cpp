@@ -14,6 +14,8 @@
 #include "CameraManager.h"
 
 #include "GameShell.h"
+#include "HistoryScene.h"
+#include "BGScene.h"
 
 #include "Config.h"
 
@@ -95,6 +97,10 @@ cInterfaceRenderDevice* terRenderDevice = NULL;
 cScene* terScene = NULL;
 cUnkLight* terLight = NULL;
 cTileMap* terMapPoint = NULL;
+
+HistoryScene* historyScene = nullptr;
+HistoryScene* bwScene = nullptr;
+BGScene* bgScene = nullptr;
 
 int terBitPerPixel = 16;
 int terScreenRefresh = 0;
@@ -373,6 +379,10 @@ void HTManager::init()
 	if (perimeter_ini.getInt("Game","ZIP")) {
         ZIPOpen("resource.pak");
     }
+    xassert(!historyScene && !bwScene && !bgScene);
+    historyScene = new HistoryScene();
+    bwScene = new HistoryScene();
+    bgScene = new BGScene();
 
 	PerimeterDataChannelLoad();
 
@@ -415,6 +425,19 @@ void HTManager::done()
 
 	FinitSound();
 	finitGraphics();
+
+	if (historyScene) { 
+       	delete historyScene;
+        historyScene = nullptr;
+	}
+	if (bwScene) {
+       	delete bwScene;
+        bwScene = nullptr;
+	}
+	if (bgScene) {
+       	delete bgScene;
+        bgScene = nullptr;
+	}
 
 	ZIPClose();
 }
