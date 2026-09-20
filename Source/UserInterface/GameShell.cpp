@@ -76,10 +76,6 @@ extern HistoryScene* bwScene;
 extern BGScene* bgScene;
 extern void PlayMusic(const char *str = 0);
 
-#ifdef __ANDROID__
-static float androidMenuWheelRemainder = 0.0f;
-#endif
-
 bool terEnableGDIPixel=false;
 
 //extern XStream quantTimeLog;
@@ -1046,7 +1042,6 @@ void GameShell::EventHandler(SDL_Event& event) {
 #ifdef __ANDROID__
     // Android touch gestures request camera pan directly instead of emulating a bound key.
     if (event.type == androidTouchCameraDragEventType()) {
-        androidMenuWheelRemainder = 0.0f;
         if (event.user.code != 0) {
             if (!_bMenuMode && !reelManager.isVisible() && !isScriptReelEnabled() &&
                 !_shellIconManager.isCutSceneMode() && !cameraMouseTrack && !cameraMouseShift) {
@@ -1094,15 +1089,7 @@ void GameShell::EventHandler(SDL_Event& event) {
             (static_cast<int>(packed & 0xffff) - 32768) / 1024.0f;
 
         if (_bMenuMode) {
-            androidMenuWheelRemainder += verticalWheelDelta * 2.0f;
-            while (androidMenuWheelRemainder >= 1.0f) {
-                MouseWheel(1.0f);
-                androidMenuWheelRemainder -= 1.0f;
-            }
-            while (androidMenuWheelRemainder <= -1.0f) {
-                MouseWheel(-1.0f);
-                androidMenuWheelRemainder += 1.0f;
-            }
+            MouseWheel(-verticalWheelDelta * 2.0f, true);
         } else if (pinchZoomDelta != 0.0f) {
             MouseWheel(pinchZoomDelta);
         }
@@ -2209,19 +2196,23 @@ void GameShell::MouseRightUnpressed(const Vect2f& pos)
 	}
 }
 
-void GameShell::MouseWheel(float delta)
+void GameShell::MouseWheel(float delta, bool preciseMenuWheel)
 {
 	if(!_bMenuMode && GameActive && _shellIconManager.IsInterface() && !isScriptReelEnabled()) {
         CChatInfoWindow* chatInfo = (CChatInfoWindow*) _shellIconManager.GetWnd(SQSH_CHAT_INFO_ID);
         if (!chatInfo || !chatInfo->isVisible() || !chatInfo->HitTest(mousePosition().x+0.5f, mousePosition().y+0.5f)) {
             terCamera->mouseWheel(delta);
         }
-    }
+	}
 	if (historyScene->ready()) {
 		historyScene->getCamera()->mouseWheel(delta > 0.0f ? 1 : -1);
 	}
 
-	_shellIconManager.OnMouseWheel(delta > 0.0f ? 1 : -1);
+	if (preciseMenuWheel) {
+		_shellIconManager.OnPreciseMouseWheel(delta);
+	} else {
+		_shellIconManager.OnMouseWheel(delta > 0.0f ? 1 : -1);
+	}
 
 	m_ShellDispatcher.OnMouseMove(mousePosition().x+0.5f, mousePosition().y+0.5f);
 	_shellCursorManager.OnMouseMove(mousePosition().x+0.5f, mousePosition().y+0.5f);

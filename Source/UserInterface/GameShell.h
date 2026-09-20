@@ -82,7 +82,7 @@ public:
 	void MouseMove(const Vect2f& pos, const Vect2f& rel);
 	void MouseLeftDoubleClick(const Vect2f& pos);
 	void MouseRightDoubleClick(const Vect2f& pos);
-	void MouseWheel(float delta);
+	void MouseWheel(float delta, bool preciseMenuWheel = false);
 	void MouseLeave();
 	void OnWindowActivate();
 

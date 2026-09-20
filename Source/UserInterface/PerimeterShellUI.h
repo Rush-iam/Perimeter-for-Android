@@ -1719,6 +1719,7 @@ class CShellIconManager
 	CutSceneCommand cutSceneCommand;
 
     bool interfaceShowFlag_;
+	float m_fPreciseWheelRemainder = 0.0f;
 
 public:
 	std::string hold;
@@ -1798,6 +1799,7 @@ public:
 	int OnKeyDown(int key);
 	int OnKeyUp(int key);
 	int OnMouseWheel(int delta);
+	int OnPreciseMouseWheel(float delta);
 		 
 	void Effect(int effect, CShellWindow* pWnd = 0);
 	void Effect(int effect, int id);

@@ -944,6 +944,7 @@ void CShellIconManager::Done()
 	cutSceneCommand.active = false;
 	m_pFocus = 0;
 	m_pCtrlHover = 0;
+	m_fPreciseWheelRemainder = 0.0f;
 	m_fTimePressed = 0;
 	m_pLastClicked = 0;
 	_bMenuMode = 0;
@@ -1855,6 +1856,7 @@ int CShellIconManager::OnMouseMove(float x, float y)
 	{
 		if(m_pCtrlHover != pWnd)
 		{
+			m_fPreciseWheelRemainder = 0.0f;
 			if(m_pCtrlHover)
 				m_pCtrlHover->OnWindow(0);
 
@@ -1876,6 +1878,7 @@ int CShellIconManager::OnMouseMove(float x, float y)
 			m_pCtrlHover->OnWindow(0);
 
 		m_pCtrlHover = 0;
+		m_fPreciseWheelRemainder = 0.0f;
 
 		ProcessDynQueue(CBCODE_MOUSEMOVE, x, y);
 	}
@@ -1990,6 +1993,7 @@ int CShellIconManager::OnRButtonUp(float x, float y)
 }
 int CShellIconManager::OnMouseWheel(int delta)
 {
+	m_fPreciseWheelRemainder = 0.0f;
 	if(m_pCtrlHover)
 	{
 		m_pCtrlHover->OnMouseWheel((delta > 0) ? -3 : 3);
@@ -1998,6 +2002,24 @@ int CShellIconManager::OnMouseWheel(int delta)
 
 	return 0;
 }
+
+int CShellIconManager::OnPreciseMouseWheel(float delta)
+{
+	if (!m_pCtrlHover || !m_pCtrlHover->isVisible()) {
+		m_fPreciseWheelRemainder = 0.0f;
+		return 0;
+	}
+
+	m_fPreciseWheelRemainder -= delta;
+	const int wholeDelta = static_cast<int>(m_fPreciseWheelRemainder);
+	if (wholeDelta != 0) {
+		m_fPreciseWheelRemainder -= wholeDelta;
+		m_pCtrlHover->OnMouseWheel(wholeDelta);
+	}
+
+	return 1;
+}
+
 int CShellIconManager::OnKeyDown(int key)
 {
 //	if(m_pModalWnd)
