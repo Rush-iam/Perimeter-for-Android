@@ -1106,6 +1106,12 @@ bool mainQuant() {
 
     app_event_poll();
 
+    // A lifecycle quit can arrive after focus is lost. Don't defer termination
+    // to HTManager::Quant(), which is skipped while the application is inactive.
+    if (gameShell && !gameShell->GameContinue) {
+        return false;
+    }
+
     //NetworkPause handler
     static bool runapp = true;
     if (applicationIsGo() != runapp) {
@@ -1394,7 +1400,10 @@ void app_event_poll() {
     pollGpxEvents();
 #endif
     while (SDL_PollEvent(&event) == 1) {
-        if (sdlWindow && event.window.windowID && event.window.windowID != windowID) {
+        // SDL_QUIT has no windowID; SDL_SendQuit may leave the rest of the
+        // event union uninitialized, so don't interpret those bytes here.
+        if (sdlWindow && event.type != SDL_QUIT && event.window.windowID &&
+            event.window.windowID != windowID) {
             //Event is for a window that is not current or window is not available
             continue;
         }

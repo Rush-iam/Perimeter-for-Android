@@ -2011,6 +2011,12 @@ int terminateAction(float, float) {
 }
 
 void onGameTerminationRequest() {
+#ifdef __ANDROID__
+    // SDL_QUIT is also sent when Android destroys the activity. There is no
+    // surface left to answer the in-game confirmation dialog, so exit now.
+    gameShell->terminate();
+    return;
+#endif
     if (gameShell->GameActive && !isShiftPressed() && terRenderDevice->GetRenderSelection() != DEVICE_HEADLESS) {
 #if 0 //def PERIMETER_DEBUG
         //Nobody got time for this
