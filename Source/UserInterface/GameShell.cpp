@@ -2505,7 +2505,11 @@ void terGameShellShowEnergy()
 //-----------------------------------------------
 void CShellLogicDispatcher::init()
 {
-	alwaysShowLifeBars = IniManager("Perimeter.ini", false).getInt("Game","ShowLifeBars");
+	int showLifeBars = IniManager("Perimeter.ini", false).getInt("Game","ShowLifeBars");
+#ifdef __ANDROID__
+	check_command_line_parameter("show_lifebars", showLifeBars);
+#endif
+	alwaysShowLifeBars = showLifeBars != 0;
 	m_pShowExternal[GAME_SHELL_SHOW_REGION_MAIN] = terScene->CreateExternalObj(terGameShellShowRegionMain,RegionMain.texture);
 	m_pShowExternal[GAME_SHELL_SHOW_REGION_MAIN_ALPHA] = terScene->CreateExternalObj(terGameShellShowRegionMainAlpha,sRegionTextureEnergy);
 	m_pShowExternal[GAME_SHELL_SHOW_REGION_MAIN_ALPHA]->SetSortPass(true);
