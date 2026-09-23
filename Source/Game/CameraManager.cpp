@@ -13,8 +13,11 @@ int cameraTiltLock = 1;
 
 //Area to consider around the center in pixels
 const float CAMERA_MOUSE_DELTA_AREA = 10.00f;
-//Threshold for dead area, in pixels
+#ifdef __ANDROID__
+const float CAMERA_MOUSE_DEAD_THRESHOLD = 0.0f;
+#else
 const float CAMERA_MOUSE_DEAD_THRESHOLD = 0.5f;
+#endif
 //Multiplier of delta speed from center to edge of area
 const float CAMERA_MOUSE_DELTA_FACTOR = 1.5f;
 

@@ -80,6 +80,9 @@ public:
 	void MouseButton(const Vect2f& pos, uint32_t key, bool pressed);
 
 	void MouseMove(const Vect2f& pos, const Vect2f& rel);
+#ifdef __ANDROID__
+	void applyAndroidCameraRotation(const Vect2f& rel);
+#endif
 	void MouseLeftDoubleClick(const Vect2f& pos);
 	void MouseRightDoubleClick(const Vect2f& pos);
 	void MouseWheel(float delta, bool preciseMenuWheel = false);

@@ -1095,6 +1095,17 @@ void GameShell::EventHandler(SDL_Event& event) {
         }
         return;
     }
+
+    if (event.type == androidTouchCameraRotationEventType()) {
+        Uint32 packed = 0;
+        std::memcpy(&packed, &event.user.code, sizeof(packed));
+        const float horizontalDelta =
+            (static_cast<int>((packed >> 16) & 0xffff) - 32768) / 1024.0f;
+        const float verticalDelta =
+            (static_cast<int>(packed & 0xffff) - 32768) / 1024.0f;
+        applyAndroidCameraRotation(Vect2f(horizontalDelta, verticalDelta));
+        return;
+    }
 #endif
 
     //Sets the SDL2 text input mode according to current text edit mode in UI
@@ -2039,7 +2050,31 @@ void GameShell::MouseMove(const Vect2f& pos, const Vect2f& rel)
 	}
 }
 
+#ifdef __ANDROID__
+void GameShell::applyAndroidCameraRotation(const Vect2f& rel)
+{
+    if (!cameraMouseTrack) {
+        return;
+    }
+
+    if (rel.x == 0.0f && rel.y == 0.0f) {
+        return;
+    }
+
+    mousePositionRelative_ += rel;
+    MouseMoveFlag = 1;
+}
+#endif
+
 void GameShell::MouseButton(const Vect2f& pos, uint32_t key, bool pressed) {
+#ifdef __ANDROID__
+    if (pressed && key == VK_MBUTTON) {
+        // The synthetic middle-button event must start from the touch midpoint,
+        // not from the cursor position left by the previous gesture.
+        mousePosition_ = pos;
+        mousePositionDelta_ = Vect2f::ZERO;
+    }
+#endif
     key = sKey(key, true).fullkey;
 
     if (CaptureControlInput && CaptureControlInput(key, pressed)) {
