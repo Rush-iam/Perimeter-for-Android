@@ -2142,10 +2142,12 @@ void GameShell::MouseLeftPressed(const Vect2f& pos)
 			}
 		}
 	}
+#ifndef __ANDROID__
 	if (BuildingInstallerInited()){
 		SND2DPlaySound(BuildingInstaller->valid() ? "building_set" : "unable_build");
 		BuildingInstaller->ConstructObject(universe()->activePlayer());
 	}
+#endif
 }
 
 void GameShell::MouseRightPressed(const Vect2f& pos)
@@ -2214,6 +2216,13 @@ void GameShell::MouseLeftUnpressed(const Vect2f& pos)
 			_shellIconManager.lButtonReset();
 			m_ShellDispatcher.OnLButtonUp(mousePosition().x+0.5f, mousePosition().y+0.5f);
 		}
+
+#ifdef __ANDROID__
+		if (BuildingInstallerInited()) {
+			SND2DPlaySound(BuildingInstaller->valid() ? "building_set" : "unable_build");
+			BuildingInstaller->ConstructObject(universe()->activePlayer());
+		}
+#endif
 	}
 }
 
