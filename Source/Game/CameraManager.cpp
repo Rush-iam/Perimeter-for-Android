@@ -352,7 +352,7 @@ void terCameraType::mouseQuant(const Vect2f& mousePos)
 		return;
 
 #if defined(__ANDROID__)
-	if (androidDisableEdgeScrolling) return;
+	if (disableEdgeScrolling) return;
 #endif
 	if(xm::abs(mousePos.x + 0.5f) < CAMERA_BORDER_SCROLL_AREA_HORZ){
 		if(coordinate().position().x > 0)

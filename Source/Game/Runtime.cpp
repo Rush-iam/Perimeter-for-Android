@@ -120,7 +120,7 @@ int terGrabInput = 0;
 int terVSyncEnable = 1;
 int applicationRunBackground = 1;
 #ifdef __ANDROID__
-int androidDisableEdgeScrolling = 1;
+int disableEdgeScrolling = 1;
 #endif
 
 int terDrawMeshShadow = 2;

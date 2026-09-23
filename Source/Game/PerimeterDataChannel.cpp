@@ -86,7 +86,7 @@ void PerimeterDataChannelLoad()
     ini_no_check.getInt("Game","RunBackground", applicationRunBackground);
     check_command_line_parameter("RunBackground", applicationRunBackground);
 #ifdef __ANDROID__
-    check_command_line_parameter("android_disable_edge_scrolling", androidDisableEdgeScrolling);
+    check_command_line_parameter("disable_edge_scrolling", disableEdgeScrolling);
 #endif
 
 	CAMERA_SCROLL_SPEED_DELTA = CAMERA_BORDER_SCROLL_SPEED_DELTA = ini.getInt("Game","ScrollRate");
