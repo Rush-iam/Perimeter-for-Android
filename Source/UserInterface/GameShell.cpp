@@ -1991,6 +1991,10 @@ void GameShell::cancelMouseLook() {
 		cameraMouseTrack = false;
         SDL_SetRelativeMouseMode(SDL_FALSE);
 		setCursorPosition(mousePressControl_);
+#ifdef __ANDROID__
+		// Drop stale relative-mode/warp motion so it cannot move the cursor for a frame.
+		SDL_FlushEvent(SDL_MOUSEMOTION);
+#endif
         mousePosition_ = mousePressControl_;
 
 		if(_shellIconManager.IsInterface())
@@ -2019,6 +2023,15 @@ void GameShell::MouseMove(const Vect2f& pos, const Vect2f& rel)
 
 	cameraCursorInWindow = true;
 
+#ifdef __ANDROID__
+	if (cameraMouseTrack) {
+		// Relative motion rotates the camera; keep the visible cursor at the press point.
+		mousePositionDelta_ = Vect2f::ZERO;
+		mousePositionRelative_ = rel;
+		MouseMoveFlag = 1;
+	}
+	else
+#endif
 	if(MousePositionLock){
 		mousePosition_ = pos;
 		mousePositionDelta_ = Vect2f::ZERO;
