@@ -25,6 +25,9 @@
 #include "AndroidFrameTiming.h"
 #include <cstdlib>
 #include "AndroidDxvkLoader.h"
+#if defined(ANDROID_XR)
+#include "AndroidXrBootstrap.h"
+#endif
 #endif
 
 static uint32_t ColorConvertARGB(const sColor4c& c) { return CONVERT_COLOR_TO_ARGB(c.v); };
@@ -353,6 +356,11 @@ int cD3DRender::Init(int xscr,int yscr,int Mode, SDL_Window* wnd, int RefreshRat
 
     WorkaroundWindowSize();
 
+#if defined(ANDROID_XR)
+	xrRendererInitialized = true;
+	if (!androidXrBootstrapCreateSession(lpD3DDevice)) return 4;
+#endif
+
     RenderSubmitEvent(RenderEvent::INIT, "D3D9 end");
 	return 0;
 }
@@ -641,6 +649,9 @@ bool cD3DRender::IsEnableSelfShadow()
 int cD3DRender::Done()
 {
     RenderSubmitEvent(RenderEvent::DONE, "D3D9 start");
+#if defined(ANDROID_XR)
+	xrRendererInitialized = false;
+#endif
 	KillFocus();
 
 	if(dtFixed)
@@ -671,6 +682,9 @@ int cD3DRender::Done()
 	bActiveScene=0;
 	RELEASE(lpD3DDevice);
 	RELEASE(lpD3D);
+#if defined(ANDROID_XR)
+	androidXrBootstrapDestroy();
+#endif
 
     ScreenSize.x=ScreenSize.y=xScrMin=yScrMin=xScrMax=yScrMax=0;
 	hWnd=0;	RenderMode=0;
@@ -773,9 +787,15 @@ int cD3DRender::Flush(bool wnd)
 { 
 	if(bActiveScene) EndScene();
 	MTG();
+#if defined(ANDROID_XR)
+	const bool xrFrame = frameColorTarget != nullptr;
+#endif
 	RestoreDeviceIfLost();
 
 	RECT rect { 0, 0, ScreenSize.x, ScreenSize.y };
+#if defined(ANDROID_XR)
+	if (!xrFrame) {
+#endif
 #ifdef __ANDROID__
 	androidFrameTimingRenderSubmit();
 	androidFrameTimingPresentStart();
@@ -783,6 +803,9 @@ int cD3DRender::Flush(bool wnd)
 	lpD3DDevice->Present(&rect, &rect, wnd ? hWnd : nullptr, nullptr);
 #ifdef __ANDROID__
 	androidFrameTimingPresentEnd();
+#endif
+#if defined(ANDROID_XR)
+	}
 #endif
 
 	if(Option_DrawNumberPolygon) 
@@ -1526,6 +1549,13 @@ void cD3DRender::SetGlobalFog(const sColor4f &color,const Vect2f &v)
 int cD3DRender::KillFocus()
 {
 	if (lpD3DDevice== nullptr) return 1;
+#if defined(ANDROID_XR)
+	androidXrBootstrapDestroySession();
+	// The caller must release eye resources before reset. Never retain a stale
+	// borrowed surface across a D3D9 device reset.
+	frameColorTarget = frameDepthTarget = nullptr;
+	DrawNode = nullptr;
+#endif
 
 	RELEASE(lpZBuffer);
 	RELEASE(lpBackBuffer);
@@ -1599,6 +1629,10 @@ bool cD3DRender::SetFocus(bool wait,bool focus_error)
 
 	RestoreShader();
 	RestoreTilemapPool();
+
+#if defined(ANDROID_XR)
+	if (xrRendererInitialized && !androidXrBootstrapCreateSession(lpD3DDevice)) return false;
+#endif
 
 	return true;
 }

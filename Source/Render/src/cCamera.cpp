@@ -349,12 +349,25 @@ void cCamera::Update()
         float zn = zPlane.x;
         float zf = zPlane.y;
         if (GetAttribute(ATTRCAMERA_PERSPECTIVE)) {
+#if defined(ANDROID_XR)
+            if (asymmetricPerspective) {
+                matProj.xx = 2 / (asymmetricRight - asymmetricLeft);
+                matProj.yy = 2 / (asymmetricUp - asymmetricDown);
+            }
+#endif
             float zc = zf / (zf - zn);
             matProj.zz = zc;
             matProj.wz = -zc * zn;
             
+#if defined(ANDROID_XR)
+            matProj.zx = asymmetricPerspective
+                ? -(asymmetricRight + asymmetricLeft) / (asymmetricRight - asymmetricLeft) : 0;
+            matProj.zy = asymmetricPerspective
+                ? -(asymmetricUp + asymmetricDown) / (asymmetricUp - asymmetricDown) : 0;
+#else
             matProj.zx = 0;
             matProj.zy = 0;
+#endif
             matProj.zw = 1;
         } else {
             matProj.zz = 1 / (zf - zn);
@@ -459,6 +472,21 @@ void cCamera::CalcClipPlane()
 void cCamera::GetFrustumPoint(Vect3f& p00,Vect3f& p01,Vect3f& p10,Vect3f& p11,Vect3f& d00,Vect3f& d01,Vect3f& d10,Vect3f& d11,float rmul)
 {
 	VISASSERT(GetAttribute(ATTRCAMERA_PERSPECTIVE));
+#if defined(ANDROID_XR)
+	if (asymmetricPerspective) {
+		const float left = asymmetricLeft * rmul, right = asymmetricRight * rmul;
+		const float down = asymmetricDown * rmul, up = asymmetricUp * rmul;
+		GetMatrix().invXformPoint(Vect3f(left * zPlane.x, down * zPlane.x, zPlane.x), p00);
+		GetMatrix().invXformPoint(Vect3f(right * zPlane.x, down * zPlane.x, zPlane.x), p01);
+		GetMatrix().invXformPoint(Vect3f(left * zPlane.x, up * zPlane.x, zPlane.x), p10);
+		GetMatrix().invXformPoint(Vect3f(right * zPlane.x, up * zPlane.x, zPlane.x), p11);
+		GetMatrix().invXformPoint(Vect3f(left * zPlane.y, down * zPlane.y, zPlane.y), d00);
+		GetMatrix().invXformPoint(Vect3f(right * zPlane.y, down * zPlane.y, zPlane.y), d01);
+		GetMatrix().invXformPoint(Vect3f(left * zPlane.y, up * zPlane.y, zPlane.y), d10);
+		GetMatrix().invXformPoint(Vect3f(right * zPlane.y, up * zPlane.y, zPlane.y), d11);
+		return;
+	}
+#endif
 	float rx,ry;
 	rx=1;ry=RenderSize.y/(float)RenderSize.x;
 	rx*=rmul;ry*=rmul;
@@ -499,6 +527,33 @@ void cCamera::GetPlaneClip(sPlane4f PlaneClip[5],const sRectangle4f *Rect)
 { 
 	if(GetAttribute(ATTRCAMERA_PERSPECTIVE))
 	{
+#if defined(ANDROID_XR)
+		if (asymmetricPerspective) {
+			const float width = Clip.xmax() - Clip.xmin();
+			const float height = Clip.ymax() - Clip.ymin();
+			const float x0 = asymmetricLeft + (Rect->xmin() - Clip.xmin()) / width *
+				(asymmetricRight - asymmetricLeft);
+			const float x1 = asymmetricLeft + (Rect->xmax() - Clip.xmin()) / width *
+				(asymmetricRight - asymmetricLeft);
+			const float y0 = asymmetricUp - (Rect->ymin() - Clip.ymin()) / height *
+				(asymmetricUp - asymmetricDown);
+			const float y1 = asymmetricUp - (Rect->ymax() - Clip.ymin()) / height *
+				(asymmetricUp - asymmetricDown);
+			const float nearZ = zPlane.x;
+			const Vect3f center = GetPos();
+			Vect3f p00, p01, p10, p11;
+			GetMatrix().invXformPoint(Vect3f(x0 * nearZ, y0 * nearZ, nearZ), p00);
+			GetMatrix().invXformPoint(Vect3f(x1 * nearZ, y0 * nearZ, nearZ), p01);
+			GetMatrix().invXformPoint(Vect3f(x0 * nearZ, y1 * nearZ, nearZ), p10);
+			GetMatrix().invXformPoint(Vect3f(x1 * nearZ, y1 * nearZ, nearZ), p11);
+			PlaneClip[0].Set(p00, p11, p01);
+			PlaneClip[1].Set(center, p00, p10);
+			PlaneClip[2].Set(center, p11, p01);
+			PlaneClip[3].Set(center, p10, p11);
+			PlaneClip[4].Set(center, p01, p00);
+			return;
+		}
+#endif
 		float cx=(Clip.xmin()+Clip.xmax())*0.5f,cy=(Clip.ymin()+Clip.ymax())*0.5f;
 		float xi=Rect->xmin()-cx,xa=Rect->xmax()-cx;
 		float yi=-(Rect->ymin()-cy),ya=-(Rect->ymax()-cy);
@@ -557,6 +612,26 @@ void cCamera::SetFrustum(const Vect2f *center,const sRectangle4f *clip,const Vec
 	Update();
 }
 
+#if defined(ANDROID_XR)
+void cCamera::SetAsymmetricPerspective(float left, float right, float down, float up)
+{
+	VISASSERT(left < right && down < up);
+	SetAttr(ATTRCAMERA_PERSPECTIVE);
+	asymmetricLeft = left;
+	asymmetricRight = right;
+	asymmetricDown = down;
+	asymmetricUp = up;
+	asymmetricPerspective = true;
+	Update();
+}
+
+void cCamera::SetViewSizeOverride(float width, float height)
+{
+	viewSizeOverride.set(width, height);
+	Update();
+}
+#endif
+
 void cCamera::GetFrustum(Vect2f *center,sRectangle4f *clip,Vect2f *focus,Vect2f *zplane)
 {
 	if(clip) *clip=Clip; 
@@ -572,6 +647,10 @@ void cCamera::UpdateVieport()
 		RenderSize.set(RenderDevice->GetSizeX(),RenderDevice->GetSizeY());
 	else
 		RenderSize.set(RenderTarget->GetWidth(),RenderTarget->GetHeight());
+#if defined(ANDROID_XR)
+	if(viewSizeOverride.x > 0 && viewSizeOverride.y > 0)
+		RenderSize = viewSizeOverride;
+#endif
 
 	FocusViewPort.set(GetFocusX()*RenderSize.x,GetFocusY()*RenderSize.x);
 	ScaleViewPort.set(1,RenderSize.x/RenderSize.y);
@@ -614,6 +693,16 @@ void cCamera::ConvertorWorldToCamera(const Vect3f *pw,Vect3f *pe) const
 
 void cCamera::ConvertorCameraToWorld(Vect3f *pw,const Vect2f *pe) const
 {
+#if defined(ANDROID_XR)
+	if (asymmetricPerspective && GetAttribute(ATTRCAMERA_PERSPECTIVE)) {
+		const float u = (pe->x - Clip.xmin()) / (Clip.xmax() - Clip.xmin());
+		const float v = (pe->y - Clip.ymin()) / (Clip.ymax() - Clip.ymin());
+		const float x = asymmetricLeft + u * (asymmetricRight - asymmetricLeft);
+		const float y = asymmetricUp - v * (asymmetricUp - asymmetricDown);
+		GetMatrix().invXformPoint(Vect3f(x * zPlane.x, y * zPlane.x, zPlane.x), *pw);
+		return;
+	}
+#endif
 	float x,y;
 	float cx=(Clip.xmin()+Clip.xmax())*0.5f,
 		  cy=(Clip.ymin()+Clip.ymax())*0.5f;
@@ -645,12 +734,23 @@ void cCamera::GetWorldRay(const Vect2f& pos_in,Vect3f& pos,Vect3f& dir) const {
 
 void cCamera::SetCopy(cCamera* DrawNode)
 {
+#if defined(ANDROID_XR)
+	DrawNode->asymmetricPerspective = asymmetricPerspective;
+	DrawNode->asymmetricLeft = asymmetricLeft;
+	DrawNode->asymmetricRight = asymmetricRight;
+	DrawNode->asymmetricDown = asymmetricDown;
+	DrawNode->asymmetricUp = asymmetricUp;
+	DrawNode->viewSizeOverride = viewSizeOverride;
+#endif
 	DrawNode->Attribute=Attribute;
 	DrawNode->Pos=Pos;
 	DrawNode->Focus=Focus;
 	DrawNode->Center=Center;
 	DrawNode->Clip=Clip;
 	DrawNode->zPlane=zPlane;
+#if defined(ANDROID_XR)
+	DrawNode->OriginalzPlane=OriginalzPlane;
+#endif
 
 	DrawNode->GlobalMatrix=GlobalMatrix;
 	DrawNode->IParent=IParent;
@@ -659,7 +759,10 @@ void cCamera::SetCopy(cCamera* DrawNode)
 	DrawNode->matProj=matProj;
 	DrawNode->matView=matView;
 	DrawNode->matViewProj=matViewProj;
-	DrawNode->zPlane=zPlane;
+#if defined(ANDROID_XR)
+	DrawNode->matViewProjScr=matViewProjScr;
+	DrawNode->vp=vp;
+#endif
 
 	int i;
 	for(i=0;i<PlaneClip3d_size;i++)
@@ -669,7 +772,13 @@ void cCamera::SetCopy(cCamera* DrawNode)
 	DrawNode->FocusViewPort=FocusViewPort;
 	DrawNode->ScaleViewPort=ScaleViewPort;
 	DrawNode->RenderSize=RenderSize;
+#if defined(ANDROID_XR)
+	DrawNode->WorldI=WorldI;
+	DrawNode->WorldJ=WorldJ;
+	DrawNode->WorldK=WorldK;
 	DrawNode->RenderTarget=GetRenderTarget();
+	DrawNode->pZBuffer=pZBuffer;
+#endif
 
 	for(i=0;i<MAXSCENENODE;i++)
 		DrawNode->DrawArray[i].clear();

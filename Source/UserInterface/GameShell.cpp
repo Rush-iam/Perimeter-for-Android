@@ -43,6 +43,9 @@
 #include "XPrmArchive.h"
 #ifdef __ANDROID__
 #include "AndroidTouchInput.h"
+#if defined(ANDROID_XR)
+#include "AndroidXrBootstrap.h"
+#endif
 #include <cstring>
 #endif
 #include "SoundScript.h"
@@ -424,6 +427,12 @@ void GameShell::done() {
         mapMoveStartCamera_->Release();
         mapMoveStartCamera_ = nullptr;
     }
+#if defined(ANDROID_XR)
+    for (auto& eyeCamera : xrEyeCameras_) {
+        if (eyeCamera) eyeCamera->Release();
+        eyeCamera = nullptr;
+    }
+#endif
     if (chaos) {
         delete chaos;
         chaos = nullptr;
@@ -893,6 +902,60 @@ void GameShell::Show()
 		terScene->PreDraw(terCamera->GetCamera());
 
 		m_ShellDispatcher.PreDraw(frame_time.delta());
+
+#if defined(ANDROID_XR)
+        AndroidXrEyeView xrViews[2]{};
+        if (androidXrBeginFrame(xrViews)) {
+            cCamera* centerCamera = terCamera->GetCamera();
+            const auto xrPoseToCamera = [](const AndroidXrEyeView& view) {
+                // Reflect OpenXR's -Z-forward axes into the D3D camera's +Z-forward axes.
+                const Mat3f trackingRotation(QuatF(view.orientation[3],
+                    view.orientation[0], view.orientation[1], view.orientation[2]));
+                Mat3f cameraRotation = trackingRotation;
+                for (int row = 0; row < 3; ++row)
+                    for (int column = 0; column < 3; ++column)
+                        cameraRotation[row][column] *=
+                            (row == 2 ? -1.0f : 1.0f) *
+                            (column == 2 ? -1.0f : 1.0f);
+                return MatXf(cameraRotation,
+                    Vect3f(view.position[0], view.position[1], -view.position[2]) * 100.0f);
+            };
+            terScene->PrepareViewFamily();
+            bool rendered = true;
+            for (unsigned eye = 0; eye < 2; ++eye) {
+                if (!xrEyeCameras_[eye]) xrEyeCameras_[eye] = terScene->CreateCamera();
+                cCamera* camera = xrEyeCameras_[eye];
+                centerCamera->SetCopy(camera);
+                const auto& view = xrViews[eye];
+                MatXf eyePose = xrPoseToCamera(view);
+                eyePose.invert();
+                camera->SetPosition(eyePose * centerCamera->GetMatrix());
+                camera->SetViewSizeOverride(static_cast<float>(view.width),
+                    static_cast<float>(view.height));
+                // The legacy game camera may use a letterboxed Clip rectangle.
+                // OpenXR's FOV covers the complete submitted eye image.
+                camera->SetClip(sRectangle4f(-0.5f, -0.5f, 0.5f, 0.5f));
+                camera->SetAsymmetricPerspective(std::tan(view.fov[0]),
+                    std::tan(view.fov[1]), std::tan(view.fov[2]),
+                    std::tan(view.fov[3]));
+                if (!androidXrBindEye(terRenderDevice, eye)) {
+                    rendered = false;
+                    break;
+                }
+                terRenderDevice->Fill(0, 0, 0);
+                terRenderDevice->BeginScene();
+                terRenderDevice->SetRenderState(RS_FOGENABLE, false);
+                terScene->DrawView(camera);
+                terRenderDevice->EndScene();
+                terRenderDevice->Flush();
+                androidXrUnbindEye(terRenderDevice);
+            }
+            androidXrEndFrame(rendered);
+            m_ShellDispatcher.PostDraw();
+            terScene->PostDraw(centerCamera);
+            return;
+        }
+#endif
 
 		terRenderDevice->Fill(0,0,0);
 		terRenderDevice->BeginScene();

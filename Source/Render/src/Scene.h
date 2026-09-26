@@ -14,6 +14,11 @@ class cScene : public cUnknownClass
 public:
 	cScene();
 	~cScene();
+#if defined(ANDROID_XR)
+	// A stereo frame prepares shared scene state once, then draws each eye.
+	void PrepareViewFamily();
+	void DrawView(cCamera *camera);
+#endif
 	// отрисовка
 	virtual void Compact();
 	virtual void Draw(cCamera *UCamera);		// отрисовка указанной части мира
@@ -111,6 +116,7 @@ public:
     SDL_mutex* GetLockDraw(){return lock_draw;}
 private:
 	void Animate();
+	void DrawViewContents(cCamera *camera);
 	cObjLibrary			*ObjLibrary;				// библиотека 3d-объектов
 	double				CurrentTime,PreviousTime;	// текущее и предыдущее время
 	Vect2i				Size;						// размер мира

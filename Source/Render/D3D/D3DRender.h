@@ -35,6 +35,9 @@ private:
     
     bool isOrthographicProjSet = false;
     bool WireframeMode = false;
+#if defined(ANDROID_XR)
+    bool xrRendererInitialized = false;
+#endif
 
     void UpdateD3DVertexBuffer(VertexBuffer* vb, size_t len);
     void UpdateD3DIndexBuffer(IndexBuffer* ib, size_t len);
@@ -63,6 +66,12 @@ public:
     IDirect3DSurface9*			lpBackBuffer;
     //This is device's ZBuffer which is not same as DrawType ZBuffer!
     IDirect3DSurface9*          lpZBuffer;
+#if defined(ANDROID_XR)
+    // Borrowed for the current XR eye. The owner releases these after clearing
+    // the override; nested render-target restores return here, not to the window.
+    IDirect3DSurface9*          frameColorTarget = nullptr;
+    IDirect3DSurface9*          frameDepthTarget = nullptr;
+#endif
     D3DPRESENT_PARAMETERS		d3dpp;
     IDirect3DBaseTexture9*		CurrentTexture[TEXTURE_MAX];
     bool						bSupportVertexShader;
@@ -97,6 +106,9 @@ public:
 	int Fill(int r,int g,int b,int a=255) override;
     void ClearZBuffer() override;
 	int Flush(bool wnd=false) override;
+#if defined(ANDROID_XR)
+	void SetFrameRenderTarget(IDirect3DSurface9* color, IDirect3DSurface9* depth);
+#endif
 	int SetGamma(float fGamma,float fStart=0.f,float fFinish=1.f) override;
 
     int CreateTilemap(cTileMap *TileMap) override;

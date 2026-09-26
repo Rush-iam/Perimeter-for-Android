@@ -329,6 +329,9 @@ private:
     Vect3f mapMoveStartWorldPos_ = Vect3f::ZERO;
     Vect3f mapMoveStartCameraPos_ = Vect3f::ZERO;
     cCamera* mapMoveStartCamera_ = nullptr;
+#if defined(ANDROID_XR)
+    cCamera* xrEyeCameras_[2] = {nullptr, nullptr};
+#endif
 
     float game_speed;
 	float game_speed_to_resume;

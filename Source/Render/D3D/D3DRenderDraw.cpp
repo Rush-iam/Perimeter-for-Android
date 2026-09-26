@@ -39,11 +39,29 @@ void cD3DRender::SetRenderTarget(cTexture* target, SurfaceImage zbuffer)
 void cD3DRender::RestoreRenderTarget()
 {
     FlushActiveDrawBuffer();
+#if defined(ANDROID_XR)
+	RDCALL(lpD3DDevice->SetRenderTarget(0,frameColorTarget ? frameColorTarget : lpBackBuffer));
+	RDCALL(lpD3DDevice->SetDepthStencilSurface(frameColorTarget ? frameDepthTarget : lpZBuffer));
+#else
 	RDCALL(lpD3DDevice->SetRenderTarget(0,lpBackBuffer));
 	RDCALL(lpD3DDevice->SetDepthStencilSurface(lpZBuffer));
+#endif
 	SetRenderState( D3DRS_ZENABLE, D3DZB_TRUE );
 	SetRenderState( D3DRS_ZWRITEENABLE, TRUE ); 
 }
+
+#if defined(ANDROID_XR)
+void cD3DRender::SetFrameRenderTarget(IDirect3DSurface9* color, IDirect3DSurface9* depth)
+{
+	VISASSERT(!color || depth);
+	FlushActiveDrawBuffer();
+	frameColorTarget = color;
+	frameDepthTarget = color ? depth : nullptr;
+	// The next draw must bind the new root target even if it reuses the camera.
+	DrawNode = nullptr;
+	RestoreRenderTarget();
+}
+#endif
 
 void cD3DRender::SetDrawNode(cCamera *pDrawNode)
 {

@@ -196,11 +196,40 @@ void cScene::PreDraw(cCamera *DrawNode)
 
 void cScene::Draw(cCamera *DrawNode)
 {
+#if defined(ANDROID_XR)
+	PrepareViewFamily();
+	DrawView(DrawNode);
+#else
 	MTEnter enter(lock_draw);
 	//PreDraw
 	UpdateLists(gb_VisGeneric->GetGraphLogicQuant());
 	VISASSERT(DrawNode->GetScene()==this);
 	Animate();
+	DrawViewContents(DrawNode);
+#endif
+}
+
+#if defined(ANDROID_XR)
+void cScene::PrepareViewFamily()
+{
+	MTEnter enter(lock_draw);
+	UpdateLists(gb_VisGeneric->GetGraphLogicQuant());
+	Animate();
+
+}
+#endif
+
+#if defined(ANDROID_XR)
+void cScene::DrawView(cCamera *DrawNode)
+{
+	MTEnter enter(lock_draw);
+	DrawViewContents(DrawNode);
+}
+#endif
+
+void cScene::DrawViewContents(cCamera *DrawNode)
+{
+	VISASSERT(DrawNode->GetScene()==this);
 	int i;
 
 	{

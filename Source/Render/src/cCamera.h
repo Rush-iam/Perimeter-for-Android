@@ -62,6 +62,12 @@ public:
 						const Vect2f *zPlane//Near and far z plane
 						);
 	virtual void GetFrustum(Vect2f *Center,sRectangle4f *Clipping,Vect2f *Focus,Vect2f *zPlane);
+#if defined(ANDROID_XR)
+	// Tangents of the left, right, down and up view angles in camera space.
+	// The ordinary centered projection remains active until this is called.
+	void SetAsymmetricPerspective(float left, float right, float down, float up);
+	void SetViewSizeOverride(float width, float height);
+#endif
 	virtual void GetPlaneClip(sPlane4f PlaneClip[5],const sRectangle4f *Rect);
 
 
@@ -185,6 +191,12 @@ protected:
 	sRectangle4f		Clip;						// Clip.left,Clip.right,Clip.top,Clip.bottom - 0..1 - размеры видимой области
 	Vect2f				zPlane;
 	Vect2f				OriginalzPlane;
+#if defined(ANDROID_XR)
+	bool asymmetricPerspective = false;
+	float asymmetricLeft = 0, asymmetricRight = 0;
+	float asymmetricDown = 0, asymmetricUp = 0;
+	Vect2f viewSizeOverride = Vect2f(0, 0);
+#endif
 
 	//new
 	MatXf			GlobalMatrix;													// глобальная матрица объекта, относительно мировых координат
