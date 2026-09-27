@@ -13,6 +13,10 @@ public:
 
 	void areaToSelection(float x0, float y0, float x1, float y1, int mode);
 	void unitToSelection(terUnitBase* p, int mode, bool passSquad = false);
+#if defined(ANDROID_XR)
+	// Resolve and select under the existing selection -> player-units lock order.
+	bool selectUnitRay(const Vect3f& start, const Vect3f& finish, int mode);
+#endif
 	void grade(terUnitBase* from, terUnitBase* to);
 	void allLikeUnitToSelection(terUnitBase* p);
 	void selectInAreaAndCurrentSelection(float x0, float y0, float x1, float y1, int mode);
@@ -100,6 +104,7 @@ protected:
 	void filterSelection();
 	void filterSelectionList(UnitList& unit_list, SelectionPriority priority);
 	void addUnitOrSquadToSelection(terUnitBase* p);
+	void unitToSelectionLocked(terUnitBase* p, int mode, bool passSquad);
     SelectionPriority calcGroupPriority(UnitList& unit_list);
 
 	static bool CanAttackUnit(terUnitBase* pUnit, terUnitBase* pTarget);

@@ -14,6 +14,9 @@
 
 struct LocalizedText;
 class MissionEditor;
+#if defined(ANDROID_XR)
+class XrCameraRig;
+#endif
 
 struct CommandLineData {
     bool server = false;
@@ -331,6 +334,11 @@ private:
     cCamera* mapMoveStartCamera_ = nullptr;
 #if defined(ANDROID_XR)
     cCamera* xrEyeCameras_[2] = {nullptr, nullptr};
+    XrCameraRig* xrCameraRig_ = nullptr;
+    float xrBuildAngle_ = 0.0f;
+    bool xrPanelVisible_ = true;
+    bool xrUiPressCaptured_ = false;
+    int xrUiPressHand_ = -1;
 #endif
 
     float game_speed;

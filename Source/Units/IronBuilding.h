@@ -135,6 +135,9 @@ public:
 	virtual int damageMoleculaRepair(int element_count = 1) override;
 
 	void ShowInfo() override;
+#if defined(ANDROID_XR)
+	void PrepareShowInfo() override;
+#endif
 
 	bool needBuildingRepair() const override { return true; }
 
@@ -152,6 +155,7 @@ protected:
 	bool needWeaponDisable() const override { return (!isConnected() || !(buildingStatus() & BUILDING_STATUS_POWERED) || terUnitReal::needWeaponDisable()); }
 
 private:
+	void UpdateInfoIcons();
 	int buildingStatus_;
 	DelayTimer cancelConstructionTimer_;
 

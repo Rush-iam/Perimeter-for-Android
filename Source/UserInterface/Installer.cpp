@@ -155,6 +155,12 @@ public:
 void terBuildingInstaller::SetBuildPosition(const Vect3f& position,float angle, terPlayer* player)
 {
     MTAuto auto_lock(&lock);
+	SetBuildPositionLocked(position, angle, player);
+}
+
+void terBuildingInstaller::SetBuildPositionLocked(const Vect3f& position,
+                                                 float angle, terPlayer* player)
+{
 	valid_ = true;
 	visible_ = false;
 	old_build_position=position;
@@ -277,19 +283,48 @@ void terBuildingInstaller::SetBuildPosition(const Vect2f& mousePos, terPlayer* p
 			v.y = clamp(v.y, radius, vMap.V_SIZE - radius);
 			visible_ = 1;
 
-			SetBuildPosition(v, xm::round(cycle(angle_set, 2 * XM_PI) / (XM_PI / 4)) * (XM_PI / 4), player);
+			SetBuildPositionLocked(v, xm::round(cycle(angle_set, 2 * XM_PI) / (XM_PI / 4)) * (XM_PI / 4), player);
 
-			ObjectPoint->ClearAttr(ATTRUNKOBJ_IGNORE);
-
-			ObjectPoint->SetPosition(Se3f(QuatF(Angle, Vect3f::K), Position));
-			sColor4f c = valid() ? sColor4f(0,1.0f,0,0.5f) : sColor4f(1.0f,0,0,0.5f);
-            ObjectPoint->SetColor(0,&c,&c);
+			UpdateGhostVisual();
 			return;
 		}
 		ObjectPoint->SetAttr(ATTRUNKOBJ_IGNORE);
 	}
 	valid_ = 0;
 }
+
+void terBuildingInstaller::UpdateGhostVisual()
+{
+    if (!ObjectPoint) return;
+    ObjectPoint->ClearAttr(ATTRUNKOBJ_IGNORE);
+    ObjectPoint->SetPosition(Se3f(QuatF(Angle, Vect3f::K), Position));
+    sColor4f color = valid() ? sColor4f(0, 1.0f, 0, 0.5f)
+                             : sColor4f(1.0f, 0, 0, 0.5f);
+    ObjectPoint->SetColor(0, &color, &color);
+}
+
+#if defined(ANDROID_XR)
+void terBuildingInstaller::SetBuildPositionWorld(const Vect3f& position,
+                                                 float angle, terPlayer* player)
+{
+    MTAuto auto_lock(&lock);
+    if (!ObjectPoint || !Attribute) return;
+    Vect3f bounded = position;
+    const float radius = Attribute->boundRadius;
+    bounded.x = clamp(bounded.x, radius, vMap.H_SIZE - radius);
+    bounded.y = clamp(bounded.y, radius, vMap.V_SIZE - radius);
+    SetBuildPositionLocked(bounded, angle, player);
+    UpdateGhostVisual();
+}
+
+void terBuildingInstaller::HideWorldPosition()
+{
+    MTAuto auto_lock(&lock);
+    visible_ = false;
+    valid_ = false;
+    if (ObjectPoint) ObjectPoint->SetAttr(ATTRUNKOBJ_IGNORE);
+}
+#endif
 
 void terBuildingInstaller::ChangeBuildAngle(float dA, terPlayer* player)
 {
@@ -326,7 +361,7 @@ void terBuildingInstaller::UpdateInfo(cCamera *DrawNode)
 	if(!(ObjectPoint && visible_ && pTexture))
 		return;
 
-	SetBuildPosition(old_build_position,old_build_angle,old_build_player);
+	SetBuildPositionLocked(old_build_position, old_build_angle, old_build_player);
 
 	if(plane==0)
 		plane=terScene->CreatePlaneObj();

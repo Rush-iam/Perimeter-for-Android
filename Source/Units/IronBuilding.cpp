@@ -477,7 +477,20 @@ void terIconBuilding::show(const Vect3f& pos)
 void terBuilding::ShowInfo()
 {
 	terUnitReal::ShowInfo();
-	
+#if !defined(ANDROID_XR)
+	UpdateInfoIcons();
+#endif
+}
+
+#if defined(ANDROID_XR)
+void terBuilding::PrepareShowInfo()
+{
+	UpdateInfoIcons();
+}
+#endif
+
+void terBuilding::UpdateInfoIcons()
+{
 	connection_icon_.quant();
 	energy_icon_.quant();
 	

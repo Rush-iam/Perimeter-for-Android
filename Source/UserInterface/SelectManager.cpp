@@ -122,6 +122,10 @@ void cSelectManager::areaToSelection(float x0, float y0, float x1, float y1, int
 void cSelectManager::unitToSelection(terUnitBase* p, int mode, bool passSquad) {
 	cancelActions();
 	CSELECT_AUTOLOCK();
+	unitToSelectionLocked(p, mode, passSquad);
+}
+
+void cSelectManager::unitToSelectionLocked(terUnitBase* p, int mode, bool passSquad) {
 	if (p->alive() && p->selectAble() && p->playerID() == player->playerID() && (passSquad || p->attr()->ID != UNIT_ATTRIBUTE_SQUAD)) {
 		if (SelectGroupLists[CURRENT_SELECTION_GROUP_NUMBER].empty() && (mode & COMMAND_SELECTED_MODE_NEGATIVE)) {
             mode ^= COMMAND_SELECTED_MODE_NEGATIVE;
@@ -153,6 +157,48 @@ void cSelectManager::unitToSelection(terUnitBase* p, int mode, bool passSquad) {
 		selectCurrentSelection();
 	}
 }
+
+#if defined(ANDROID_XR)
+bool cSelectManager::selectUnitRay(const Vect3f& start, const Vect3f& finish, int mode) {
+    if (!player) return false;
+    cancelActions();
+    CSELECT_AUTOLOCK();
+    CUNITS_LOCK(player);
+    const Vect3f segment = finish - start;
+    const float lengthSquared = segment.norm2();
+    if (lengthSquared <= FLT_EPS) return false;
+    terUnitBase* nearest = nullptr;
+    float nearestDistance = lengthSquared;
+    for (terUnitBase* unit : player->units()) {
+        if (!unit->alive() || !unit->selectAble() ||
+            unit->attr()->ID == UNIT_ATTRIBUTE_SQUAD) continue;
+        const Vect3f delta = unit->position() - start;
+        const float projection = delta.x * segment.x + delta.y * segment.y +
+                                 delta.z * segment.z;
+        if (projection < 0.0f || projection > lengthSquared) continue;
+        if (unit->avatar() && unit->avatar()->GetModelPoint()) {
+            if (!safe_cast<cObjectNode*>(unit->avatar()->GetModelPoint())->Intersect(start, finish))
+                continue;
+        } else {
+            const Vect3f closest = start + segment * (projection / lengthSquared);
+            if ((unit->position() - closest).norm2() > sqr(unit->radius())) continue;
+        }
+        if (projection < nearestDistance) {
+            nearestDistance = projection;
+            nearest = unit;
+        }
+    }
+    if (nearest) {
+        unitToSelectionLocked(nearest, mode, false);
+        return true;
+    }
+    if ((mode & COMMAND_SELECTED_MODE_NEGATIVE) == 0) {
+        clear(TEMP_SELECTION_GROUP_NUMBER);
+        clear();
+    }
+    return false;
+}
+#endif
 
 void cSelectManager::grade(terUnitBase* from, terUnitBase* to) {
 	CSELECT_AUTOLOCK();

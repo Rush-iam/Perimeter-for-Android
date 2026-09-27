@@ -426,6 +426,10 @@ public:
 	void RasterizeRegion();
 
 	void ShowInfo();
+#if defined(ANDROID_XR)
+	void PrepareShowInfo();
+	void ShowInfo(bool updateSharedState);
+#endif
 
 	void universalLoad(SavePlayerData& data);
 	void universalSave(SavePlayerData& data, bool userSave) const;

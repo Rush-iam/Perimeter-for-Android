@@ -82,6 +82,9 @@ public:
 	virtual void Unmark(){ marked_ = false; }
 	
 	virtual void ShowInfo() {} // Вывод интерфейсной инфы: путь, лайф-бар
+#if defined(ANDROID_XR)
+	virtual void PrepareShowInfo() {}
+#endif
 
 	//-----------------------------------------------------
 	//	Интерполяция

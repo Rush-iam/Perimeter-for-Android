@@ -341,7 +341,21 @@ void terCorridorOmega::checkConnection()
 void terCorridorOmega::ShowInfo()
 {
 	terCorridor::ShowInfo();
-	
+#if !defined(ANDROID_XR)
+	UpdateMinedIcon();
+#endif
+}
+
+#if defined(ANDROID_XR)
+void terCorridorOmega::PrepareShowInfo()
+{
+	terCorridor::PrepareShowInfo();
+	UpdateMinedIcon();
+}
+#endif
+
+void terCorridorOmega::UpdateMinedIcon()
+{
 	minedIcon_.quant();
 	if (mined() && 0 < attr()->iconDistanceFactor) {
 		MatXf m = avatar()->matrix();

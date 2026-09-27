@@ -340,11 +340,29 @@ void terUniverse::AvatarQuant()
  
 void terUniverse::ShowInfo()
 {
+#if defined(ANDROID_XR)
+	ShowInfo(true);
+}
+
+void terUniverse::PrepareShowInfo()
+{
+	PlayerVect::iterator pi;
+	FOR_EACH(Players, pi)
+		(*pi)->PrepareShowInfo();
+}
+
+void terUniverse::ShowInfo(bool updateSharedState)
+{
+#endif
 	terHyperSpace::ShowInfo();
 
 	PlayerVect::iterator pi;
 	FOR_EACH(Players, pi)
+#if defined(ANDROID_XR)
+		(*pi)->ShowInfo(updateSharedState);
+#else
 		(*pi)->ShowInfo();
+#endif
 }
 
 void terUniverse::receiveCommand(const netCommand4G_Region& reg)

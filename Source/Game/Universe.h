@@ -59,6 +59,10 @@ public:
     void checkEvent(const class Event* event);
 
 	void ShowInfo() override;
+#if defined(ANDROID_XR)
+	void PrepareShowInfo();
+	void ShowInfo(bool updateSharedState);
+#endif
 
 	void makeCommand(CommandID id, int data);
 	void makeCommand2D(CommandID command_id, const Vect3f& position, CommandSelectionMode mode);

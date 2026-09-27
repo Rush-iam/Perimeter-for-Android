@@ -837,7 +837,20 @@ void terFrame::showDebugInfo()
 void terFrame::ShowInfo()
 {
 	terUnitReal::ShowInfo();
+#if !defined(ANDROID_XR)
+	UpdateFramePreview();
+#endif
+}
 
+#if defined(ANDROID_XR)
+void terFrame::PrepareShowInfo()
+{
+	UpdateFramePreview();
+}
+#endif
+
+void terFrame::UpdateFramePreview()
+{
 	if(Player->active() && !attached() && selected())
 		installer_.SetBuildPosition(position(), angleZ(), Player);
 	else

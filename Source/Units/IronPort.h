@@ -117,11 +117,15 @@ public:
 	void checkConnection();
 
 	void ShowInfo();
+#if defined(ANDROID_XR)
+	void PrepareShowInfo();
+#endif
 
 	bool upgraded() const { return upgraded_ && isConstructed(); }
 	bool mined() const;
 
 private:
+	void UpdateMinedIcon();
 	bool upgraded_;
 	terIconBuilding minedIcon_;
 };

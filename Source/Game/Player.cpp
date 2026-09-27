@@ -424,6 +424,24 @@ void terPlayer::PrepareQuant()
 
 void terPlayer::ShowInfo()
 {
+#if defined(ANDROID_XR)
+	ShowInfo(true);
+}
+
+void terPlayer::PrepareShowInfo()
+{
+	MTG();
+	CUNITS_LOCK(this);
+	quantZeroplast();
+	UnitList::iterator ui;
+	FOR_EACH(Units, ui)
+		if ((*ui)->alive())
+			(*ui)->PrepareShowInfo();
+}
+
+void terPlayer::ShowInfo(bool updateSharedState)
+{
+#endif
 	MTG();
 	CUNITS_LOCK(this);
 	UnitList::iterator ui;
@@ -431,7 +449,10 @@ void terPlayer::ShowInfo()
 		if((*ui)->alive())
 			(*ui)->ShowInfo();
 
-	quantZeroplast();
+#if defined(ANDROID_XR)
+	if (updateSharedState)
+#endif
+		quantZeroplast();
 //	if(ActivePlayerFlag)
 //		TrustMap->Show();
 }

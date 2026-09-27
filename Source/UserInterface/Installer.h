@@ -25,12 +25,18 @@ public:
 	void UpdateInfo(cCamera *DrawNode);
 	//For AI
 	void SetBuildPosition(const Vect3f& position, float angle, terPlayer* player);
+#if defined(ANDROID_XR)
+	void SetBuildPositionWorld(const Vect3f& position, float angle, terPlayer* player);
+	void HideWorldPosition();
+#endif
 
 	bool inited() const { return ObjectPoint != 0; }
 	bool valid() const { return valid_; }
 	bool buildingInArea() const { return buildingInArea_; }
 
 private:
+    void SetBuildPositionLocked(const Vect3f& position, float angle, terPlayer* player);
+    void UpdateGhostVisual();
     MTSection lock;
 	const AttributeBase* Attribute = nullptr;
 	Vect3f Position;

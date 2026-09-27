@@ -45,6 +45,7 @@
 #include "AndroidTouchInput.h"
 #if defined(ANDROID_XR)
 #include "AndroidXrBootstrap.h"
+#include "xr/XrCameraRig.h"
 #endif
 #include <cstring>
 #endif
@@ -80,6 +81,174 @@ extern BGScene* bgScene;
 extern void PlayMusic(const char *str = 0);
 
 bool terEnableGDIPixel=false;
+
+#if defined(ANDROID_XR)
+static Vect3f rotateXrVector(const float orientation[4], const Vect3f& value)
+{
+    const Vect3f axis(orientation[0], orientation[1], orientation[2]);
+    const float dotAxisValue = axis.dot(value);
+    const float dotAxisAxis = axis.dot(axis);
+    const Vect3f cross(axis.y * value.z - axis.z * value.y,
+                       axis.z * value.x - axis.x * value.z,
+                       axis.x * value.y - axis.y * value.x);
+    const float scalar = orientation[3];
+    return axis * (2.0f * dotAxisValue) +
+        value * (scalar * scalar - dotAxisAxis) + cross * (2.0f * scalar);
+}
+
+static bool projectXrPointToScreen(const AndroidXrEyeView& eye,
+                                  const Vect3f& trackingPoint,
+                                  int screenWidth, int screenHeight,
+                                  int* screenX, int* screenY)
+{
+    if (!screenWidth || !screenHeight || !eye.width || !eye.height || !screenX || !screenY)
+        return false;
+    const float inverseEyeOrientation[4] = {
+        -eye.orientation[0], -eye.orientation[1], -eye.orientation[2], eye.orientation[3]};
+    const Vect3f fromEye(trackingPoint.x - eye.position[0],
+                         trackingPoint.y - eye.position[1],
+                         trackingPoint.z - eye.position[2]);
+    const Vect3f eyePoint = rotateXrVector(inverseEyeOrientation, fromEye);
+    const float depth = -eyePoint.z;
+    if (depth <= 0.001f) return false;
+    const float tanLeft = std::tan(eye.fov[0]);
+    const float tanRight = std::tan(eye.fov[1]);
+    const float tanDown = std::tan(eye.fov[2]);
+    const float tanUp = std::tan(eye.fov[3]);
+    const float tanWidth = tanRight - tanLeft;
+    const float tanHeight = tanUp - tanDown;
+    if (tanWidth <= 0.0f || tanHeight <= 0.0f) return false;
+    const float u = (eyePoint.x / depth - tanLeft) / tanWidth;
+    const float v = (tanUp - eyePoint.y / depth) / tanHeight;
+
+    // DrawLine(int, ...) uses the renderer's logical ScreenSize, while each
+    // OpenXR eye buffer has its own extent. Preserve normalized eye coordinates.
+    *screenX = static_cast<int>(u * screenWidth);
+    *screenY = static_cast<int>(v * screenHeight);
+    return true;
+}
+
+static void drawXrControllerLaser(cInterfaceRenderDevice* renderer,
+                                  const AndroidXrEyeView& eye,
+                                  const AndroidXrHandState& hand,
+                                  const sColor4c& color)
+{
+    if (!hand.aimValid) return;
+    const Vect3f direction = rotateXrVector(hand.aimOrientation, Vect3f(0, 0, -1));
+    const Vect3f start(hand.aimPosition[0], hand.aimPosition[1], hand.aimPosition[2]);
+    const Vect3f finish = start + direction * 5.0f;
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    if (!projectXrPointToScreen(eye, start, renderer->GetSizeX(), renderer->GetSizeY(),
+                                &x0, &y0) ||
+        !projectXrPointToScreen(eye, finish, renderer->GetSizeX(), renderer->GetSizeY(),
+                                &x1, &y1)) return;
+    renderer->DrawLine(x0, y0, x1, y1, color, 3.0f);
+}
+
+static void drawXrPanelCursor(cInterfaceRenderDevice* renderer, float pixelX, float pixelY)
+{
+    const int x = static_cast<int>(pixelX);
+    const int y = static_cast<int>(pixelY);
+    const sColor4c outline(0, 0, 0, 255);
+    const sColor4c cursor(255, 235, 64, 255);
+    const auto drawArms = [&](const sColor4c& color, float width) {
+        renderer->DrawLine(x - 48, y, x - 12, y, color, width);
+        renderer->DrawLine(x + 12, y, x + 48, y, color, width);
+        renderer->DrawLine(x, y - 48, x, y - 12, color, width);
+        renderer->DrawLine(x, y + 12, x, y + 48, color, width);
+    };
+    drawArms(outline, 5.0f);
+    drawArms(cursor, 3.0f);
+    renderer->DrawRectangle(x - 4, y - 4, 8, 8, outline);
+    renderer->DrawRectangle(x - 2, y - 2, 4, 4, cursor);
+}
+
+static void getXrHeadPosition(const AndroidXrEyeView views[2], float position[3])
+{
+    for (unsigned axis = 0; axis < 3; ++axis)
+        position[axis] = (views[0].position[axis] + views[1].position[axis]) * 0.5f;
+}
+
+struct XrPanelHit {
+    bool valid = false;
+    float x = 0.0f;
+    float y = 0.0f;
+};
+
+static unsigned chooseXrPointerHand(const AndroidXrInputFrame& input,
+                                    const XrPanelHit hits[2], int capturedHand)
+{
+    if (capturedHand >= 0 && capturedHand < 2 && input.hands[capturedHand].aimValid)
+        return static_cast<unsigned>(capturedHand);
+    for (unsigned hand = 0; hand < 2; ++hand)
+        if (hits[hand].valid && (input.hands[hand].pressed & ANDROID_XR_SELECT))
+            return hand;
+    if (hits[1].valid || (!hits[0].valid && input.hands[1].aimValid)) return 1;
+    return 0;
+}
+
+static void prepareXrEyeCameras(XrCameraRig& rig, cScene* scene,
+                                cCamera* centerCamera, cCamera* eyeCameras[2],
+                                const AndroidXrEyeView views[2])
+{
+    for (unsigned eye = 0; eye < 2; ++eye) {
+        if (!eyeCameras[eye]) eyeCameras[eye] = scene->CreateCamera();
+        cCamera* camera = eyeCameras[eye];
+        centerCamera->SetCopy(camera);
+        const auto& view = views[eye];
+        MatXf eyePose = rig.Pose(view.position, view.orientation);
+        eyePose.invert();
+        camera->SetPosition(eyePose * centerCamera->GetMatrix());
+        camera->SetViewSizeOverride(static_cast<float>(view.width),
+                                    static_cast<float>(view.height));
+        camera->SetClip(sRectangle4f(-0.5f, -0.5f, 0.5f, 0.5f));
+        camera->SetAsymmetricPerspective(std::tan(view.fov[0]),
+            std::tan(view.fov[1]), std::tan(view.fov[2]), std::tan(view.fov[3]));
+    }
+}
+
+template<class DrawEye>
+static bool drawXrEyeViews(cInterfaceRenderDevice* renderer,
+                           const AndroidXrEyeView views[2], DrawEye drawEye)
+{
+    for (unsigned eye = 0; eye < 2; ++eye) {
+        if (!androidXrBindEye(renderer, eye)) return false;
+        renderer->Fill(0, 0, 0);
+        renderer->BeginScene();
+        drawEye(eye);
+        renderer->SetClipRect(0, 0, static_cast<int>(views[eye].width),
+                              static_cast<int>(views[eye].height));
+        renderer->FlushPrimitive2D();
+        renderer->EndScene();
+        renderer->Flush();
+        renderer->SetClipRect(0, 0, renderer->GetSizeX(), renderer->GetSizeY());
+        androidXrUnbindEye(renderer);
+    }
+    return true;
+}
+
+static void drawXrUiPanel(cInterfaceRenderDevice* renderer,
+                          CShellLogicDispatcher* dispatcher,
+                          unsigned width, unsigned height,
+                          bool cursorVisible, float cursorX, float cursorY)
+{
+    if (!androidXrBeginUiPanel(renderer, width, height)) return;
+    renderer->Fill(0, 0, 0, 0);
+    renderer->BeginScene();
+    renderer->SetClipRect(0, 0, static_cast<int>(width), static_cast<int>(height));
+    _shellIconManager.draw();
+    if (dispatcher) dispatcher->draw();
+    if (cursorVisible) {
+        androidXrRestoreUiPanelViewport(renderer, width, height);
+        drawXrPanelCursor(renderer, cursorX, cursorY);
+    }
+    renderer->FlushPrimitive2D();
+    renderer->EndScene();
+    renderer->Flush();
+    androidXrEndUiPanel(renderer);
+}
+
+#endif
 
 //extern XStream quantTimeLog;
 
@@ -392,6 +561,9 @@ windowClientSize_(1024, 768)
 
 GameShell::~GameShell()
 {
+#if defined(ANDROID_XR)
+    delete xrCameraRig_;
+#endif
 	GameContinue = false;
 	setScriptReelEnabled(false);
 
@@ -905,55 +1077,195 @@ void GameShell::Show()
 
 #if defined(ANDROID_XR)
         AndroidXrEyeView xrViews[2]{};
-        if (androidXrBeginFrame(xrViews)) {
+        AndroidXrInputFrame xrInput{};
+        if (androidXrBeginFrame(xrViews, &xrInput)) {
             cCamera* centerCamera = terCamera->GetCamera();
-            const auto xrPoseToCamera = [](const AndroidXrEyeView& view) {
-                // Reflect OpenXR's -Z-forward axes into the D3D camera's +Z-forward axes.
-                const Mat3f trackingRotation(QuatF(view.orientation[3],
-                    view.orientation[0], view.orientation[1], view.orientation[2]));
-                Mat3f cameraRotation = trackingRotation;
-                for (int row = 0; row < 3; ++row)
-                    for (int column = 0; column < 3; ++column)
-                        cameraRotation[row][column] *=
-                            (row == 2 ? -1.0f : 1.0f) *
-                            (column == 2 ? -1.0f : 1.0f);
-                return MatXf(cameraRotation,
-                    Vect3f(view.position[0], view.position[1], -view.position[2]) * 100.0f);
-            };
+            if (!xrCameraRig_) xrCameraRig_ = new XrCameraRig();
+            xrCameraRig_->BeginFrame(xrViews);
+            float headPosition[3]{};
+            getXrHeadPosition(xrViews, headPosition);
+            const float deltaSeconds = frame_time.delta() * 0.001f;
+            xrCameraRig_->UpdateControls(
+                xrInput.hands[0].thumbstick, xrInput.hands[0].thumbstickActive,
+                xrInput.hands[1].thumbstick, xrInput.hands[1].thumbstickActive,
+                deltaSeconds, headPosition);
+            MatXf centerWorld = centerCamera->GetMatrix();
+            centerWorld.invert();
             terScene->PrepareViewFamily();
-            bool rendered = true;
-            for (unsigned eye = 0; eye < 2; ++eye) {
-                if (!xrEyeCameras_[eye]) xrEyeCameras_[eye] = terScene->CreateCamera();
-                cCamera* camera = xrEyeCameras_[eye];
-                centerCamera->SetCopy(camera);
-                const auto& view = xrViews[eye];
-                MatXf eyePose = xrPoseToCamera(view);
-                eyePose.invert();
-                camera->SetPosition(eyePose * centerCamera->GetMatrix());
-                camera->SetViewSizeOverride(static_cast<float>(view.width),
-                    static_cast<float>(view.height));
-                // The legacy game camera may use a letterboxed Clip rectangle.
-                // OpenXR's FOV covers the complete submitted eye image.
-                camera->SetClip(sRectangle4f(-0.5f, -0.5f, 0.5f, 0.5f));
-                camera->SetAsymmetricPerspective(std::tan(view.fov[0]),
-                    std::tan(view.fov[1]), std::tan(view.fov[2]),
-                    std::tan(view.fov[3]));
-                if (!androidXrBindEye(terRenderDevice, eye)) {
-                    rendered = false;
-                    break;
+            prepareXrEyeCameras(*xrCameraRig_, terScene, centerCamera,
+                                xrEyeCameras_, xrViews);
+            const unsigned uiWidth = static_cast<unsigned>(terRenderDevice->GetSizeX());
+            const unsigned uiHeight = static_cast<unsigned>(terRenderDevice->GetSizeY());
+            androidXrPrepareUiPanel(uiWidth, uiHeight);
+
+            bool uiPointerVisible = false;
+            float uiPointerX = 0.0f;
+            float uiPointerY = 0.0f;
+            if (xrInput.focused) {
+                for (unsigned hand = 0; hand < 2; ++hand) {
+                    if (xrInput.hands[hand].pressed & ANDROID_XR_MENU)
+                        xrPanelVisible_ = !xrPanelVisible_;
                 }
-                terRenderDevice->Fill(0, 0, 0);
-                terRenderDevice->BeginScene();
+
+                androidXrSetUiPanelVisible(xrPanelVisible_ &&
+                    _shellIconManager.interfaceShowFlag());
+                XrPanelHit panelHits[2];
+                if (xrPanelVisible_ && _shellIconManager.interfaceShowFlag()) {
+                    for (unsigned hand = 0; hand < 2; ++hand)
+                        panelHits[hand].valid = androidXrHitUiPanel(
+                            xrInput.hands[hand], uiWidth, uiHeight,
+                            &panelHits[hand].x, &panelHits[hand].y);
+                }
+                const unsigned pointerHand = BuildingInstallerInited()
+                    ? (xrInput.hands[1].aimValid ? 1u : 0u)
+                    : chooseXrPointerHand(xrInput, panelHits,
+                                          xrUiPressCaptured_ ? xrUiPressHand_ : -1);
+                Vect2f pointerPosition = mousePosition_;
+                const bool pointerOverUi = panelHits[pointerHand].valid &&
+                    !BuildingInstallerInited();
+                uiPointerVisible = pointerOverUi;
+                if (pointerOverUi) {
+                    uiPointerX = panelHits[pointerHand].x;
+                    uiPointerY = panelHits[pointerHand].y;
+                    pointerPosition.set(uiPointerX / uiWidth - 0.5f,
+                                        uiPointerY / uiHeight - 0.5f);
+                    mousePositionDelta_ = pointerPosition - mousePosition_;
+                    mousePosition_ = pointerPosition;
+                    CursorOverInterface = _shellIconManager.OnMouseMove(
+                        pointerPosition.x + 0.5f, pointerPosition.y + 0.5f);
+                    m_ShellDispatcher.OnMouseMove(pointerPosition.x + 0.5f,
+                                                  pointerPosition.y + 0.5f);
+                }
+
+                if (xrUiPressCaptured_) {
+                    const bool released = xrUiPressHand_ >= 0 &&
+                        (xrInput.hands[xrUiPressHand_].released & ANDROID_XR_SELECT);
+                    const bool trackingLost = xrUiPressHand_ < 0 ||
+                        !xrInput.hands[xrUiPressHand_].aimValid;
+                    if (released) {
+                        const float x = pointerPosition.x + 0.5f;
+                        const float y = pointerPosition.y + 0.5f;
+                        if (!_shellIconManager.OnLButtonUp(x, y))
+                            m_ShellDispatcher.OnLButtonUp(x, y);
+                        _shellIconManager.lButtonReset();
+                        xrUiPressCaptured_ = false;
+                        xrUiPressHand_ = -1;
+                    } else if (trackingLost) {
+                        _shellIconManager.lButtonReset();
+                        xrUiPressCaptured_ = false;
+                        xrUiPressHand_ = -1;
+                    }
+                }
+
+                if (BuildingInstallerInited()) {
+                    const auto& hand = xrInput.hands[pointerHand];
+                    if (!hand.aimValid || (hand.pressed & ANDROID_XR_CANCEL)) {
+                        BuildingInstaller->CancelObject();
+                        xrBuildAngle_ = 0.0f;
+                    } else if (panelHits[pointerHand].valid) {
+                        BuildingInstaller->HideWorldPosition();
+                    } else {
+                        if (hand.pressed & ANDROID_XR_ROTATE)
+                            xrBuildAngle_ += XM_PI / 4.0f;
+                        const MatXf worldAim = centerWorld *
+                            xrCameraRig_->Pose(hand.aimPosition, hand.aimOrientation);
+                        Vect3f ground;
+                        if (terScene->Trace(worldAim.trans(),
+                                            worldAim * Vect3f(0, 0, 5000),
+                                            &ground, false, false)) {
+                            BuildingInstaller->SetBuildPositionWorld(ground, xrBuildAngle_,
+                                                                     universe()->activePlayer());
+                            if ((hand.pressed & ANDROID_XR_SELECT) && BuildingInstaller->valid()) {
+                                BuildingInstaller->ConstructObject(universe()->activePlayer());
+                                xrBuildAngle_ = 0.0f;
+                            }
+                        } else {
+                            BuildingInstaller->HideWorldPosition();
+                        }
+                    }
+                } else {
+                    for (unsigned handIndex = 0; handIndex < 2; ++handIndex) {
+                        const auto& input = xrInput.hands[handIndex];
+                        if (!input.aimValid) continue;
+                        if (xrUiPressCaptured_ && xrUiPressHand_ == static_cast<int>(handIndex))
+                            continue;
+                        if (panelHits[handIndex].valid) {
+                            if ((input.pressed & ANDROID_XR_SELECT) && !xrUiPressCaptured_) {
+                                const float x = panelHits[handIndex].x / uiWidth;
+                                const float y = panelHits[handIndex].y / uiHeight;
+                                if (!_shellIconManager.OnLButtonDown(x, y))
+                                    m_ShellDispatcher.OnLButtonDown(x, y);
+                                xrUiPressCaptured_ = true;
+                                xrUiPressHand_ = static_cast<int>(handIndex);
+                            }
+                            continue;
+                        }
+                        if (input.pressed & ANDROID_XR_CANCEL) {
+                            universe()->DeselectAll();
+                            continue;
+                        }
+                        if ((input.pressed & (ANDROID_XR_SELECT | ANDROID_XR_COMMAND)) == 0)
+                            continue;
+
+                        const MatXf worldAim = centerWorld *
+                            xrCameraRig_->Pose(input.aimPosition, input.aimOrientation);
+                        const Vect3f rayStart = worldAim.trans();
+                        const Vect3f rayFinish = worldAim * Vect3f(0, 0, 5000);
+                        Vect3f ground;
+                        const bool groundHit = terScene->Trace(rayStart, rayFinish,
+                                                               &ground, false, false);
+                        if (input.pressed & ANDROID_XR_SELECT)
+                            universe()->select.selectUnitRay(rayStart,
+                                groundHit ? ground : rayFinish, COMMAND_SELECTED_MODE_NONE);
+                        if ((input.pressed & ANDROID_XR_COMMAND) && groundHit)
+                            universe()->makeCommandSubtle(COMMAND_ID_POINT, ground,
+                                                           COMMAND_SELECTED_MODE_NONE);
+                    }
+                }
+            } else {
+                if (xrUiPressCaptured_)
+                    _shellIconManager.lButtonReset();
+                xrUiPressCaptured_ = false;
+                xrUiPressHand_ = -1;
+            }
+
+            terScene->PrepareTerrainViewFamily(xrEyeCameras_[0], xrEyeCameras_[1]);
+            if (_shellIconManager.interfaceShowFlag())
+                universe()->PrepareShowInfo();
+            const bool rendered = drawXrEyeViews(terRenderDevice, xrViews, [&](unsigned eye) {
+                cCamera* camera = xrEyeCameras_[eye];
                 terRenderDevice->SetRenderState(RS_FOGENABLE, false);
                 terScene->DrawView(camera);
-                terRenderDevice->EndScene();
-                terRenderDevice->Flush();
-                androidXrUnbindEye(terRenderDevice);
-            }
+                if (_shellIconManager.interfaceShowFlag())
+                    universe()->ShowInfo(false);
+                showWays();
+                for (unsigned hand = 0; hand < 2; ++hand) {
+                    drawXrControllerLaser(terRenderDevice, xrViews[eye],
+                        xrInput.hands[hand], hand == 0 ? sColor4c(64, 180, 255, 255)
+                                                       : sColor4c(255, 180, 64, 255));
+                }
+            });
+            androidXrSetUiPanelVisible(xrInput.focused && xrPanelVisible_ &&
+                _shellIconManager.interfaceShowFlag());
+            if (rendered && xrInput.focused && xrPanelVisible_ &&
+                _shellIconManager.interfaceShowFlag())
+                drawXrUiPanel(terRenderDevice, &m_ShellDispatcher,
+                              uiWidth, uiHeight, uiPointerVisible, uiPointerX, uiPointerY);
             androidXrEndFrame(rendered);
             m_ShellDispatcher.PostDraw();
             terScene->PostDraw(centerCamera);
             return;
+        }
+        if (androidXrSessionActive() && BuildingInstallerInited() &&
+            !androidXrIsFocused()) {
+            BuildingInstaller->CancelObject();
+            xrBuildAngle_ = 0.0f;
+        }
+        if (androidXrSessionActive() && !androidXrIsFocused()) {
+            if (xrUiPressCaptured_)
+                _shellIconManager.lButtonReset();
+            xrUiPressCaptured_ = false;
+            xrUiPressHand_ = -1;
         }
 #endif
 
@@ -1039,6 +1351,124 @@ void GameShell::Show()
 		if (bgScene->ready()) {
 			bgScene->quant(frame_time.delta());
 		}
+
+#if defined(ANDROID_XR)
+        AndroidXrEyeView menuViews[2]{};
+        AndroidXrInputFrame menuInput{};
+        if (androidXrBeginFrame(menuViews, &menuInput)) {
+            cCamera* centerCamera = terCamera->GetCamera();
+            if (!xrCameraRig_) xrCameraRig_ = new XrCameraRig();
+            xrCameraRig_->BeginFrame(menuViews);
+            float headPosition[3]{};
+            getXrHeadPosition(menuViews, headPosition);
+            const float deltaSeconds = frame_time.delta() * 0.001f;
+            xrCameraRig_->UpdateControls(
+                menuInput.hands[0].thumbstick, menuInput.hands[0].thumbstickActive,
+                menuInput.hands[1].thumbstick, menuInput.hands[1].thumbstickActive,
+                deltaSeconds, headPosition);
+            MatXf centerWorld = centerCamera->GetMatrix();
+            centerWorld.invert();
+            prepareXrEyeCameras(*xrCameraRig_, terScene, centerCamera,
+                                xrEyeCameras_, menuViews);
+            const unsigned uiWidth = static_cast<unsigned>(terRenderDevice->GetSizeX());
+            const unsigned uiHeight = static_cast<unsigned>(terRenderDevice->GetSizeY());
+            androidXrPrepareUiPanel(uiWidth, uiHeight);
+
+            bool uiPointerVisible = false;
+            float uiPointerX = 0.0f;
+            float uiPointerY = 0.0f;
+            if (menuInput.focused) {
+                for (unsigned hand = 0; hand < 2; ++hand) {
+                    if (menuInput.hands[hand].pressed & ANDROID_XR_MENU)
+                        xrPanelVisible_ = !xrPanelVisible_;
+                }
+                androidXrSetUiPanelVisible(xrPanelVisible_ &&
+                    _shellIconManager.interfaceShowFlag());
+                XrPanelHit panelHits[2];
+                if (xrPanelVisible_ && _shellIconManager.interfaceShowFlag()) {
+                    for (unsigned hand = 0; hand < 2; ++hand)
+                        panelHits[hand].valid = androidXrHitUiPanel(
+                            menuInput.hands[hand], uiWidth, uiHeight,
+                            &panelHits[hand].x, &panelHits[hand].y);
+                }
+                const unsigned pointerHand = chooseXrPointerHand(
+                    menuInput, panelHits, xrUiPressCaptured_ ? xrUiPressHand_ : -1);
+                const bool pointerOverPanel = panelHits[pointerHand].valid;
+                uiPointerVisible = pointerOverPanel;
+                if (pointerOverPanel) {
+                    uiPointerX = panelHits[pointerHand].x;
+                    uiPointerY = panelHits[pointerHand].y;
+                    mousePosition_.set(uiPointerX / uiWidth - 0.5f,
+                                       uiPointerY / uiHeight - 0.5f);
+                    _shellIconManager.OnMouseMove(mousePosition_.x + 0.5f,
+                                                  mousePosition_.y + 0.5f);
+                    m_ShellDispatcher.OnMouseMove(mousePosition_.x + 0.5f,
+                                                  mousePosition_.y + 0.5f);
+                }
+
+                if (xrUiPressCaptured_) {
+                    const bool released = xrUiPressHand_ >= 0 &&
+                        (menuInput.hands[xrUiPressHand_].released & ANDROID_XR_SELECT);
+                    const bool trackingLost = xrUiPressHand_ < 0 ||
+                        !menuInput.hands[xrUiPressHand_].aimValid;
+                    if (released) {
+                        const float x = mousePosition_.x + 0.5f;
+                        const float y = mousePosition_.y + 0.5f;
+                        if (!_shellIconManager.OnLButtonUp(x, y))
+                            m_ShellDispatcher.OnLButtonUp(x, y);
+                        _shellIconManager.lButtonReset();
+                        xrUiPressCaptured_ = false;
+                        xrUiPressHand_ = -1;
+                    } else if (trackingLost) {
+                        _shellIconManager.lButtonReset();
+                        xrUiPressCaptured_ = false;
+                        xrUiPressHand_ = -1;
+                    }
+                }
+                if (!xrUiPressCaptured_ && pointerOverPanel &&
+                    (menuInput.hands[pointerHand].pressed & ANDROID_XR_SELECT)) {
+                    const float x = panelHits[pointerHand].x / uiWidth;
+                    const float y = panelHits[pointerHand].y / uiHeight;
+                    if (!_shellIconManager.OnLButtonDown(x, y))
+                        m_ShellDispatcher.OnLButtonDown(x, y);
+                    xrUiPressCaptured_ = true;
+                    xrUiPressHand_ = static_cast<int>(pointerHand);
+                }
+            } else {
+                if (xrUiPressCaptured_)
+                    _shellIconManager.lButtonReset();
+                xrUiPressCaptured_ = false;
+                xrUiPressHand_ = -1;
+            }
+
+            const bool rendered = drawXrEyeViews(terRenderDevice, menuViews, [&](unsigned eye) {
+                terRenderDevice->SetDrawNode(xrEyeCameras_[eye]);
+                terRenderDevice->SetClipRect(0, 0,
+                    static_cast<int>(menuViews[eye].width),
+                    static_cast<int>(menuViews[eye].height));
+                for (unsigned hand = 0; hand < 2; ++hand) {
+                    drawXrControllerLaser(terRenderDevice, menuViews[eye],
+                        menuInput.hands[hand], hand == 0 ? sColor4c(64, 180, 255, 255)
+                                                         : sColor4c(255, 180, 64, 255));
+                }
+                terRenderDevice->FlushPrimitive3D();
+            });
+            androidXrSetUiPanelVisible(menuInput.focused && xrPanelVisible_ &&
+                _shellIconManager.interfaceShowFlag());
+            if (rendered && menuInput.focused && xrPanelVisible_ &&
+                _shellIconManager.interfaceShowFlag())
+                drawXrUiPanel(terRenderDevice, nullptr,
+                              uiWidth, uiHeight, uiPointerVisible, uiPointerX, uiPointerY);
+            androidXrEndFrame(rendered);
+            return;
+        }
+        if (androidXrSessionActive() && !androidXrIsFocused()) {
+            if (xrUiPressCaptured_)
+                _shellIconManager.lButtonReset();
+            xrUiPressCaptured_ = false;
+            xrUiPressHand_ = -1;
+        }
+#endif
 		
 		//draw
 		terRenderDevice->Fill(0,0,0);

@@ -154,6 +154,9 @@ public:
 	bool underTeleportation() const { return underTeleportation_; }
 
 	void ShowInfo() override;
+#if defined(ANDROID_XR)
+	void PrepareShowInfo() override;
+#endif
 	void showDebugInfo() override;
 
 	bool analyzeTerrain();
@@ -165,6 +168,7 @@ public:
 	Vect2f inputPosition() const { return position2D() + inputPositionOffset_; }
 
 private:
+	void UpdateFramePreview();
 	enum DockStatus
 	{
 		DOCK_STATUS_NONE,
