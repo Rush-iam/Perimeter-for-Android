@@ -1136,14 +1136,14 @@ void GameShell::Show()
             if (!xrInput.focused) xrCameraRig_->ResetTableManipulation();
             const Vect3f tablePivot =
                 xrInput.focused && xrCameraRig_->NeedsTablePivot(
-                    xrInput.hands[1].thumbstick,
+                    xrInput.hands[1].thumbstick[1],
                     xrInput.hands[1].thumbstickActive)
                     ? getXrTablePivot(*xrCameraRig_, terScene, centerWorld,
                                       xrViews)
                     : Vect3f::ZERO;
             xrCameraRig_->UpdateControls(
                 xrInput.hands[0].thumbstick, xrInput.hands[0].thumbstickActive,
-                xrInput.hands[1].thumbstick,
+                xrInput.hands[1].thumbstick[1],
                 xrInput.focused && xrInput.hands[1].thumbstickActive,
                 deltaSeconds, tablePivot, centerWorld, headPosition);
             terScene->PrepareViewFamily();
@@ -1423,14 +1423,14 @@ void GameShell::Show()
             if (!menuInput.focused) xrCameraRig_->ResetTableManipulation();
             const Vect3f tablePivot =
                 menuInput.focused && xrCameraRig_->NeedsTablePivot(
-                    menuInput.hands[1].thumbstick,
+                    menuInput.hands[1].thumbstick[1],
                     menuInput.hands[1].thumbstickActive)
                     ? getXrTablePivot(*xrCameraRig_, terScene, centerWorld,
                                       menuViews)
                     : Vect3f::ZERO;
             xrCameraRig_->UpdateControls(
                 menuInput.hands[0].thumbstick, menuInput.hands[0].thumbstickActive,
-                menuInput.hands[1].thumbstick,
+                menuInput.hands[1].thumbstick[1],
                 menuInput.focused && menuInput.hands[1].thumbstickActive,
                 deltaSeconds, tablePivot, centerWorld, headPosition);
             prepareXrEyeCameras(*xrCameraRig_, terScene, centerCamera,
