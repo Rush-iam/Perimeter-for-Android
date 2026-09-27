@@ -169,25 +169,14 @@ static void getXrHeadPosition(const AndroidXrEyeView views[2], float position[3]
         position[axis] = (views[0].position[axis] + views[1].position[axis]) * 0.5f;
 }
 
-static Vect3f getXrTablePivot(XrCameraRig& rig, cScene* scene,
-                              const MatXf& centerWorld,
-                              const AndroidXrEyeView views[2])
+static Vect3f getXrScalePivot(const XrCameraRig& rig, const MatXf& centerWorld,
+                             const AndroidXrEyeView views[2])
 {
     const MatXf leftWorld = centerWorld * rig.Pose(views[0].position,
                                                   views[0].orientation);
     const MatXf rightWorld = centerWorld * rig.Pose(views[1].position,
                                                    views[1].orientation);
     const Vect3f rayStart = (leftWorld.trans() + rightWorld.trans()) * 0.5f;
-    if (!vMap.IsFullLoad() || !vMap.H_SIZE || !vMap.V_SIZE)
-        return rayStart;
-
-    const int centerX = vMap.H_SIZE / 2;
-    const int centerY = vMap.V_SIZE / 2;
-    Vect3f worldPivot(static_cast<float>(centerX), static_cast<float>(centerY),
-                      static_cast<float>(vMap.GetAlt(centerX, centerY) >> VX_FRACTION));
-    const float width = static_cast<float>(vMap.H_SIZE);
-    const float height = static_cast<float>(vMap.V_SIZE);
-    const float maxRayLength = 0.5f * std::sqrt(width * width + height * height);
     const auto screenCenterDirection = [](const MatXf& eyeWorld,
                                           const AndroidXrEyeView& view) {
         const float x = 0.5f * (std::tan(view.fov[0]) + std::tan(view.fov[1]));
@@ -200,18 +189,8 @@ static Vect3f getXrTablePivot(XrCameraRig& rig, cScene* scene,
         screenCenterDirection(leftWorld, views[0]) +
         screenCenterDirection(rightWorld, views[1]);
     rayDirection.normalize();
-    const Vect3f rayVector = rayDirection * maxRayLength;
-    Vect3f terrainHit;
-    if (scene->Trace(rayStart, rayStart + rayVector, &terrainHit, false, false)) {
-        // Scene::Trace does not stop at pFinish, so reject hits past the cap.
-        const Vect3f toHit = terrainHit - rayStart;
-        if (toHit.dot(rayVector) >= 0.0f &&
-            toHit.dot(toHit) <= maxRayLength * maxRayLength) {
-            worldPivot = terrainHit;
-        }
-    }
-
-    return worldPivot;
+    constexpr float pivotDistanceGameUnits = 500.0f;
+    return rayStart + rayDirection * pivotDistanceGameUnits;
 }
 
 struct XrPanelHit {
@@ -1133,13 +1112,11 @@ void GameShell::Show()
             const float deltaSeconds = frame_time.delta() * 0.001f;
             MatXf centerWorld = centerCamera->GetMatrix();
             centerWorld.invert();
-            if (!xrInput.focused) xrCameraRig_->ResetTableManipulation();
             const Vect3f tablePivot =
                 xrInput.focused && xrCameraRig_->NeedsTablePivot(
                     xrInput.hands[1].thumbstick[1],
                     xrInput.hands[1].thumbstickActive)
-                    ? getXrTablePivot(*xrCameraRig_, terScene, centerWorld,
-                                      xrViews)
+                    ? getXrScalePivot(*xrCameraRig_, centerWorld, xrViews)
                     : Vect3f::ZERO;
             xrCameraRig_->UpdateControls(
                 xrInput.hands[0].thumbstick, xrInput.hands[0].thumbstickActive,
@@ -1420,13 +1397,11 @@ void GameShell::Show()
             const float deltaSeconds = frame_time.delta() * 0.001f;
             MatXf centerWorld = centerCamera->GetMatrix();
             centerWorld.invert();
-            if (!menuInput.focused) xrCameraRig_->ResetTableManipulation();
             const Vect3f tablePivot =
                 menuInput.focused && xrCameraRig_->NeedsTablePivot(
                     menuInput.hands[1].thumbstick[1],
                     menuInput.hands[1].thumbstickActive)
-                    ? getXrTablePivot(*xrCameraRig_, terScene, centerWorld,
-                                      menuViews)
+                    ? getXrScalePivot(*xrCameraRig_, centerWorld, menuViews)
                     : Vect3f::ZERO;
             xrCameraRig_->UpdateControls(
                 menuInput.hands[0].thumbstick, menuInput.hands[0].thumbstickActive,
