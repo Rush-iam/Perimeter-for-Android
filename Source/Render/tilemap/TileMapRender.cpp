@@ -249,6 +249,24 @@ void cTileMapRender::bumpCreateIB(sPolygon *ib, int lod)
 }
 
 void cTileMapRender::PreDraw(cCamera* DrawNode) {
+#if defined(ANDROID_XR)
+    PreDrawViews(DrawNode, nullptr);
+#else
+    PreDrawViews(DrawNode);
+#endif
+}
+
+#if defined(ANDROID_XR)
+void cTileMapRender::PreDrawStereo(cCamera* left, cCamera* right) {
+    PreDrawViews(left, right);
+}
+#endif
+
+void cTileMapRender::PreDrawViews(cCamera* DrawNode
+#if defined(ANDROID_XR)
+                                 , cCamera* secondEye
+#endif
+) {
     for(int y=0; y < tilemap->GetTileNumber().y; y++)
         for(int x=0; x < tilemap->GetTileNumber().x; x++)
         {
@@ -277,14 +295,27 @@ void cTileMapRender::PreDraw(cCamera* DrawNode) {
     const uint64_t calcTileMapStartNs = androidFrameTimingNowNs();
 #endif
 
+#if defined(ANDROID_XR)
+    CalcTileMap(DrawNode, secondEye);
+#else
     CalcTileMap(DrawNode);
+#endif
     #if defined(__ANDROID__)
     androidFrameTimingRecordCompactWork("tilemap_predraw_calc", calcTileMapStartNs, androidFrameTimingNowNs());
     #endif
 }
 
-void cTileMapRender::CalcTileMap(cCamera* DrawNode) {
+void cTileMapRender::CalcTileMap(cCamera* DrawNode
+#if defined(ANDROID_XR)
+                                , cCamera* secondEye
+#endif
+) {
     cTileMap::calcVisMap(DrawNode, tilemap->GetTileNumber(), tilemap->GetTileSize(), visMap, true);
+#if defined(ANDROID_XR)
+    if (secondEye)
+        cTileMap::calcVisMap(secondEye, tilemap->GetTileNumber(), tilemap->GetTileSize(),
+                             visMap, false);
+#endif
 
 //start_timer(Calc_TileMap, 1);
 
@@ -300,6 +331,13 @@ void cTileMapRender::CalcTileMap(cCamera* DrawNode) {
     int lodBudgetRemaining = lodRebuildBudget;
     cCamera* pNormalCamera = DrawNode->GetRoot();
     float lod_focus=Option_MapLevel * pNormalCamera->GetFocusViewPort().x;
+#if defined(ANDROID_XR)
+    cCamera* secondRoot = secondEye ? secondEye->GetRoot() : nullptr;
+    if (secondRoot) {
+        const float secondFocus = Option_MapLevel * secondRoot->GetFocusViewPort().x;
+        if (secondFocus > lod_focus) lod_focus = secondFocus;
+    }
+#endif
     float DistLevelDetail[TILEMAP_LOD] = { // was: 1,2,4,6
             0.5f * lod_focus,
             1.5f * lod_focus,
@@ -337,6 +375,12 @@ void cTileMapRender::CalcTileMap(cCamera* DrawNode) {
                 // избежания случая 2 разных LOD в одно время 
                 int iLod;
                 float dist=pNormalCamera->GetPos().distance(coord+dcoord/2);
+#if defined(ANDROID_XR)
+                if (secondRoot) {
+                    const float secondDistance = secondRoot->GetPos().distance(coord+dcoord/2);
+                    if (secondDistance < dist) dist = secondDistance;
+                }
+#endif
                 for(iLod=0;iLod<TILEMAP_LOD;iLod++)
                     if(dist<DistLevelDetail[iLod])break;
                 if (iLod >= TILEMAP_LOD)

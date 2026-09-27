@@ -255,6 +255,22 @@ void cTileMap::PreDraw(cCamera *DrawNode)
     }
 }
 
+#if defined(ANDROID_XR)
+void cTileMap::PrepareStereo(cCamera *left, cCamera *right)
+{
+	if (GetAttribute(ATTRUNKOBJ_IGNORE)) return;
+	BuildRegionPoint();
+	if (cTileMapRender* render = GetTilemapRender())
+		render->PreDrawStereo(left, right);
+}
+
+void cTileMap::AttachStereoView(cCamera *camera)
+{
+	if (!GetAttribute(ATTRUNKOBJ_IGNORE))
+		camera->Attach(SCENENODE_OBJECT_TILEMAP, this);
+}
+#endif
+
 void cTileMap::Draw(cCamera *DrawNode)
 {
 	if(!Option_ShowType[SHOW_TILEMAP])

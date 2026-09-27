@@ -1917,12 +1917,20 @@ void cD3DRender::UseOrthographicProjection() {
     RDCALL(lpD3DDevice->SetTransform(D3DTS_VIEW, reinterpret_cast<const D3DMATRIX*>(&Mat4f::ID)));
     RDCALL(lpD3DDevice->SetTransform(D3DTS_PROJECTION, reinterpret_cast<const D3DMATRIX*>(&orthoVP)));
     //SetDrawTransform may have changed viewport, set screen viewport just in case
-    D3DVIEWPORT9 vp={
+    D3DVIEWPORT9 vp{};
+#if defined(ANDROID_XR)
+    if (frameColorTarget) {
+        RDCALL(lpD3DDevice->GetViewport(&vp));
+    } else
+#endif
+    {
+        vp = {
             0, 0,
             static_cast<DWORD>(ScreenSize.x),
             static_cast<DWORD>(ScreenSize.y),
             0.0f, 1.0f
-    };
+        };
+    }
     RDCALL(lpD3DDevice->SetViewport(&vp));
 }
 

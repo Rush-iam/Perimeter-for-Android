@@ -40,6 +40,11 @@ private:
     void cacheBumpTile(int tileIndex, int id);
     int takeCachedBumpTile(int tileIndex, int lod);
     void discardCachedBumpTiles(int tileIndex);
+    void PreDrawViews(cCamera* firstEye
+#if defined(ANDROID_XR)
+                      , cCamera* secondEye
+#endif
+    );
 
     VectDelta* delta_buffer;
     std::vector<std::vector<sPolygon>> index_buffer;
@@ -66,9 +71,16 @@ public:
     int bumpTileAlloc(int lod,int xpos,int ypos,sBumpTile* textureSource = NULL);
     void bumpTileFree(int id);
     void bumpTilesDeath();
-    void CalcTileMap(cCamera* DrawNode);
+    void CalcTileMap(cCamera* DrawNode
+#if defined(ANDROID_XR)
+                     , cCamera* secondEye = nullptr
+#endif
+    );
 
     void PreDraw(cCamera* DrawNode);
+#if defined(ANDROID_XR)
+    void PreDrawStereo(cCamera* left, cCamera* right);
+#endif
     void DrawBump(cCamera* DrawNode,eBlendMode MatMode,TILEMAP_DRAW tile_draw,bool shadow);
 
     sBumpTile* GetTile(int k,int n)

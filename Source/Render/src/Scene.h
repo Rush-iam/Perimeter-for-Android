@@ -17,6 +17,7 @@ public:
 #if defined(ANDROID_XR)
 	// A stereo frame prepares shared scene state once, then draws each eye.
 	void PrepareViewFamily();
+	void PrepareTerrainViewFamily(cCamera *left, cCamera *right);
 	void DrawView(cCamera *camera);
 #endif
 	// отрисовка
@@ -125,6 +126,9 @@ private:
 	QuatTree			tree;
 
 	class cTileMap *TileMap;
+#if defined(ANDROID_XR)
+	bool terrainFamilyPrepared_ = false;
+#endif
 
 	Vect2i TileNumber;
 	int tile_size;

@@ -213,9 +213,19 @@ void cScene::Draw(cCamera *DrawNode)
 void cScene::PrepareViewFamily()
 {
 	MTEnter enter(lock_draw);
+	terrainFamilyPrepared_ = false;
 	UpdateLists(gb_VisGeneric->GetGraphLogicQuant());
 	Animate();
 
+}
+
+void cScene::PrepareTerrainViewFamily(cCamera *left, cCamera *right)
+{
+	MTEnter enter(lock_draw);
+	if (TileMap) {
+		TileMap->PrepareStereo(left, right);
+		terrainFamilyPrepared_ = true;
+	}
 }
 #endif
 
@@ -245,6 +255,11 @@ void cScene::DrawViewContents(cCamera *DrawNode)
 	if(TileMap)
 	{
 		AddReflectionCamera(DrawNode);
+#if defined(ANDROID_XR)
+		if (terrainFamilyPrepared_) {
+			TileMap->AttachStereoView(DrawNode);
+		} else
+#endif
 		TileMap->PreDraw(DrawNode);
 		TileMap->DrawLightmapShadow(DrawNode);
 		if(!disable_tilemap_visible_test)

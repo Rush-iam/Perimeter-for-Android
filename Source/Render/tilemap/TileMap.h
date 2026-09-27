@@ -86,6 +86,10 @@ public:
 	virtual ~cTileMap();
 	// общие интерфейсные функции унаследованы от cUnkObj
 	virtual void PreDraw(cCamera *UCamera);
+#if defined(ANDROID_XR)
+	void PrepareStereo(cCamera *left, cCamera *right);
+	void AttachStereoView(cCamera *camera);
+#endif
 	virtual void Draw(cCamera *UCamera);
 	virtual void UpdateMap(const Vect2i& pos1, const Vect2i& pos2);
 	void UpdateMap(const Vect2i& pos, float radius) { UpdateMap(pos - Vect2i(radius, radius), pos + Vect2i(radius, radius)); }
