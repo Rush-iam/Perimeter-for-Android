@@ -52,6 +52,10 @@ public:
 
 	void reset();
 
+#if defined(ANDROID_XR)
+    void recenterOrientation();
+#endif
+
 	void setFocus(float focus);
     void setCoordinate(const CameraCoordinate& coord) {
         coordinate_ = coord;
@@ -126,6 +130,10 @@ private:
 	bool restricted_ = false;
 
 	CameraCoordinate coordinate_;
+#if defined(ANDROID_XR)
+    // Keeps the game camera at the same world position when recentering levels it.
+    Vect3f xrRecenterPositionOffset_ = Vect3f::ZERO;
+#endif
 	
 	int interpolationDuration_;
 	int interpolationTimer_;

@@ -33,6 +33,9 @@ const float CAMERA_MAX_HEIGHT = 10000.0f;
 const float CAMERA_THETA_MIN = static_cast<float>(XM_PI/5.0);
 const float CAMERA_THETA_MAX = static_cast<float>(XM_PI/2.85);
 #endif
+#if defined(ANDROID_XR)
+const float CAMERA_XR_LEVEL_THETA = static_cast<float>(XM_PI / 2.0);
+#endif
 const float CAMERA_ZOOM_MAX = CAMERA_MAX_HEIGHT / 2.0f;
 const float CAMERA_ZOOM_MIN = CAMERA_MIN_HEIGHT + 100.0f;
 const float CAMERA_ZOOM_TERRAIN_THRESOLD1 = CAMERA_ZOOM_MIN + CAMERA_ZOOM_GROUND_MAX;
@@ -149,6 +152,10 @@ void CameraCoordinate::check(bool restricted)
 		//          до CAMERA_THETA_MAX на CAMERA_ZOOM_MAX
 		float t = 1 - (distance() - CAMERA_ZOOM_MIN)/(CAMERA_ZOOM_MAX - CAMERA_ZOOM_MIN);
 		float theta_max = CAMERA_THETA_MIN + t*(CAMERA_THETA_MAX - CAMERA_THETA_MIN);
+#if defined(ANDROID_XR)
+        // XR recentering levels the camera at the horizontal theta angle.
+        theta_max = CAMERA_XR_LEVEL_THETA;
+#endif
 
 		theta_ = clamp(theta(), 0, theta_max);
     }
@@ -227,6 +234,9 @@ void terCameraType::update()
 	}
     
     position.z = clamp(position.z, restricted() ? CAMERA_MIN_HEIGHT : coordinate().height(), CAMERA_MAX_HEIGHT);
+#if defined(ANDROID_XR)
+    position += xrRecenterPositionOffset_;
+#endif
 
 	matrix_ = MatXf::ID;
 	matrix_.rot() = Mat3f(coordinate().theta(), X_AXIS)*Mat3f(XM_PI/2 - coordinate().psi(), Z_AXIS);
@@ -747,6 +757,26 @@ void terCameraType::reset()
 {
 	oscillatingTimer_.stop();
 	stopReplayPath();
+#if defined(ANDROID_XR)
+    xrRecenterPositionOffset_ = Vect3f::ZERO;
+#endif
 }
+
+#if defined(ANDROID_XR)
+void terCameraType::recenterOrientation()
+{
+    const Vect3f positionBefore = Camera->GetPos();
+    // Theta is measured from world up: pi/2 looks forward and keeps world up
+    // aligned with the view, so the base camera contributes no roll.
+    coordinate_.theta() = CAMERA_XR_LEVEL_THETA;
+    cameraThetaForce = cameraThetaVelocity = 0.0f;
+    for (auto& point : interpolationPoints_)
+        point.theta() = CAMERA_XR_LEVEL_THETA;
+    update();
+    // Keep the eye in place even though the camera's spherical orbit changed.
+    xrRecenterPositionOffset_ += positionBefore - Camera->GetPos();
+    update();
+}
+#endif
 
 

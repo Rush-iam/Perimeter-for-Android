@@ -1124,9 +1124,10 @@ void GameShell::Show()
         AndroidXrEyeView xrViews[2]{};
         AndroidXrInputFrame xrInput{};
         if (androidXrBeginFrame(xrViews, &xrInput)) {
+            if (xrInput.recentered) terCamera->recenterOrientation();
             cCamera* centerCamera = terCamera->GetCamera();
             if (!xrCameraRig_) xrCameraRig_ = new XrCameraRig();
-            xrCameraRig_->BeginFrame(xrViews);
+            xrCameraRig_->BeginFrame(xrViews, xrInput.recentered);
             float headPosition[3]{};
             getXrHeadPosition(xrViews, headPosition);
             const float deltaSeconds = frame_time.delta() * 0.001f;
@@ -1410,9 +1411,10 @@ void GameShell::Show()
         AndroidXrEyeView menuViews[2]{};
         AndroidXrInputFrame menuInput{};
         if (androidXrBeginFrame(menuViews, &menuInput)) {
+            if (menuInput.recentered) terCamera->recenterOrientation();
             cCamera* centerCamera = terCamera->GetCamera();
             if (!xrCameraRig_) xrCameraRig_ = new XrCameraRig();
-            xrCameraRig_->BeginFrame(menuViews);
+            xrCameraRig_->BeginFrame(menuViews, menuInput.recentered);
             float headPosition[3]{};
             getXrHeadPosition(menuViews, headPosition);
             const float deltaSeconds = frame_time.delta() * 0.001f;
