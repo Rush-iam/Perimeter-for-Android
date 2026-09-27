@@ -1118,11 +1118,17 @@ void GameShell::Show()
                     xrInput.hands[1].thumbstickActive)
                     ? getXrScalePivot(*xrCameraRig_, centerWorld, xrViews)
                     : Vect3f::ZERO;
+            // CSkySpere scales its mesh to this radius around (H/2, H/2, 0).
+            const float skyRadius = 4.0f * vMap.H_SIZE /
+                (vMap.H_SIZE > 2048 ? 2.2f : 1.8f);
+            const Vect3f skyCenter(vMap.H_SIZE * 0.5f,
+                                   vMap.H_SIZE * 0.5f, 0.0f);
             xrCameraRig_->UpdateControls(
                 xrInput.hands[0].thumbstick, xrInput.hands[0].thumbstickActive,
                 xrInput.hands[1].thumbstick[1],
                 xrInput.focused && xrInput.hands[1].thumbstickActive,
-                deltaSeconds, tablePivot, centerWorld, headPosition);
+                deltaSeconds, tablePivot, centerWorld, headPosition,
+                skyCenter, skyRadius);
             terScene->PrepareViewFamily();
             prepareXrEyeCameras(*xrCameraRig_, terScene, centerCamera,
                                 xrEyeCameras_, xrViews);
@@ -1407,7 +1413,8 @@ void GameShell::Show()
                 menuInput.hands[0].thumbstick, menuInput.hands[0].thumbstickActive,
                 menuInput.hands[1].thumbstick[1],
                 menuInput.focused && menuInput.hands[1].thumbstickActive,
-                deltaSeconds, tablePivot, centerWorld, headPosition);
+                deltaSeconds, tablePivot, centerWorld, headPosition,
+                Vect3f::ZERO, 0.0f);
             prepareXrEyeCameras(*xrCameraRig_, terScene, centerCamera,
                                 xrEyeCameras_, menuViews);
             const unsigned uiWidth = static_cast<unsigned>(terRenderDevice->GetSizeX());
