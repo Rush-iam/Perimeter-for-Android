@@ -1139,16 +1139,34 @@ void GameShell::Show()
             bool uiPointerVisible = false;
             float uiPointerX = 0.0f;
             float uiPointerY = 0.0f;
+            bool panelTracked = false;
             if (xrInput.focused) {
+                bool panelChanged = false;
                 for (unsigned hand = 0; hand < 2; ++hand) {
-                    if (xrInput.hands[hand].pressed & ANDROID_XR_MENU)
-                        xrPanelVisible_ = !xrPanelVisible_;
+                    if (xrInput.hands[hand].pressed & ANDROID_XR_PANEL) {
+                        if (xrPanelVisible_ && xrPanelHand_ == hand)
+                            xrPanelVisible_ = false;
+                        else {
+                            xrPanelHand_ = hand;
+                            xrPanelVisible_ = true;
+                        }
+                        panelChanged = true;
+                    }
                 }
-
-                androidXrSetUiPanelVisible(xrPanelVisible_ &&
+                panelTracked = androidXrAttachUiPanelToHand(
+                    xrInput.hands[xrPanelHand_], xrPanelHand_);
+                if (xrUiPressCaptured_ &&
+                    (panelChanged || !xrPanelVisible_ || !panelTracked ||
+                     !_shellIconManager.interfaceShowFlag())) {
+                    _shellIconManager.lButtonReset();
+                    xrUiPressCaptured_ = false;
+                    xrUiPressHand_ = -1;
+                }
+                androidXrSetUiPanelVisible(xrPanelVisible_ && panelTracked &&
                     _shellIconManager.interfaceShowFlag());
                 XrPanelHit panelHits[2];
-                if (xrPanelVisible_ && _shellIconManager.interfaceShowFlag()) {
+                if (xrPanelVisible_ && panelTracked &&
+                    _shellIconManager.interfaceShowFlag()) {
                     for (unsigned hand = 0; hand < 2; ++hand)
                         panelHits[hand].valid = androidXrHitUiPanel(
                             xrInput.hands[hand], uiWidth, uiHeight,
@@ -1284,8 +1302,9 @@ void GameShell::Show()
                 }
             });
             androidXrSetUiPanelVisible(xrInput.focused && xrPanelVisible_ &&
+                panelTracked &&
                 _shellIconManager.interfaceShowFlag());
-            if (rendered && xrInput.focused && xrPanelVisible_ &&
+            if (rendered && xrInput.focused && xrPanelVisible_ && panelTracked &&
                 _shellIconManager.interfaceShowFlag())
                 drawXrUiPanel(terRenderDevice, &m_ShellDispatcher,
                               uiWidth, uiHeight, uiPointerVisible, uiPointerX, uiPointerY);
@@ -1419,15 +1438,26 @@ void GameShell::Show()
                                 xrEyeCameras_, menuViews);
             const unsigned uiWidth = static_cast<unsigned>(terRenderDevice->GetSizeX());
             const unsigned uiHeight = static_cast<unsigned>(terRenderDevice->GetSizeY());
+            androidXrSetUiPanelFixed();
             androidXrPrepareUiPanel(uiWidth, uiHeight);
 
             bool uiPointerVisible = false;
             float uiPointerX = 0.0f;
             float uiPointerY = 0.0f;
             if (menuInput.focused) {
+                bool togglePanel = false;
                 for (unsigned hand = 0; hand < 2; ++hand) {
-                    if (menuInput.hands[hand].pressed & ANDROID_XR_MENU)
-                        xrPanelVisible_ = !xrPanelVisible_;
+                    if (menuInput.hands[hand].pressed & ANDROID_XR_PANEL)
+                        togglePanel = true;
+                }
+                if (togglePanel)
+                    xrPanelVisible_ = !xrPanelVisible_;
+                if (xrUiPressCaptured_ &&
+                    (togglePanel || !xrPanelVisible_ ||
+                     !_shellIconManager.interfaceShowFlag())) {
+                    _shellIconManager.lButtonReset();
+                    xrUiPressCaptured_ = false;
+                    xrUiPressHand_ = -1;
                 }
                 androidXrSetUiPanelVisible(xrPanelVisible_ &&
                     _shellIconManager.interfaceShowFlag());

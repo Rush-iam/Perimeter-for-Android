@@ -337,6 +337,7 @@ private:
     XrCameraRig* xrCameraRig_ = nullptr;
     float xrBuildAngle_ = 0.0f;
     bool xrPanelVisible_ = true;
+    unsigned xrPanelHand_ = 0; // Left hand by default.
     bool xrUiPressCaptured_ = false;
     int xrUiPressHand_ = -1;
 #endif
