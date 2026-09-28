@@ -61,6 +61,9 @@
 #ifdef __ANDROID__
 #include "AndroidFrameTiming.h"
 #endif
+#if defined(ANDROID_XR)
+#include "AndroidXrListenerPose.h"
+#endif
 
 #ifdef GPX
 extern void pollGpxEvents();
@@ -953,6 +956,12 @@ void SoundQuant()
 	if(!terAudioEnable)
 		return;
 
+#if defined(ANDROID_XR)
+    MatXf xrListenerView;
+    if (androidXrReadListenerView(&xrListenerView))
+        snd_listener.SetPos(xrListenerView);
+    else
+#endif
 	snd_listener.SetPos(terCamera->matrix());
 	snd_listener.SetVelocity(Vect3f(0,0,0));
 

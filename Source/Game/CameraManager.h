@@ -1,6 +1,10 @@
 #ifndef __CAMERA_MANAGER_H__
 #define __CAMERA_MANAGER_H__
 
+#if defined(ANDROID_XR)
+#include <atomic>
+#endif
+
 class terUnitBase; 
 struct SaveCameraData; 
 struct SaveCameraSplineData;
@@ -54,6 +58,13 @@ public:
 
 #if defined(ANDROID_XR)
     void recenterOrientation();
+    void alignXrPositionToScriptedCamera(int durationMs);
+    bool xrCameraTransitionActive() const {
+        return interpolationTimer_ != 0 || xrPositionAlignmentDurationMs_ != 0;
+    }
+    Vect3f translateXrPan(const Vect3f& worldDelta);
+    bool initialCameraPosePending() const { return xrInitialCameraPosePending_.load(); }
+    void finishInitialCameraPose() { xrInitialCameraPosePending_.store(false); }
 #endif
 
 	void setFocus(float focus);
@@ -133,6 +144,10 @@ private:
 #if defined(ANDROID_XR)
     // Keeps the game camera at the same world position when recentering levels it.
     Vect3f xrRecenterPositionOffset_ = Vect3f::ZERO;
+    Vect3f xrPositionAlignmentStart_ = Vect3f::ZERO;
+    int xrPositionAlignmentDurationMs_ = 0;
+    float xrPositionAlignmentElapsedMs_ = 0.0f;
+    std::atomic<bool> xrInitialCameraPosePending_{false};
 #endif
 	
 	int interpolationDuration_;
@@ -157,6 +172,10 @@ private:
 	CoordList path_;
 	int replayIndex_;
 	int replayIndexMax_;
+#if defined(ANDROID_XR)
+    bool xrReplayEntry_ = false;
+    int xrReplayStepDuration_ = 0;
+#endif
 
 	DurationTimer oscillatingTimer_;
 	int explodingDuration_;

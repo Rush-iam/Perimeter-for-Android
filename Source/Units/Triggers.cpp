@@ -1160,13 +1160,40 @@ void ActionSetCamera::activate(AIPlayer& aiPlayer)
 		const SaveCameraSplineData* spline = gameShell->manualData().findCameraSpline(camera.c_str());
 		if(spline){
 			xassert(!spline->path.empty());
-			if(!spline->useAsSpline){
-				CameraCoordinate coord;
-				coord.load(spline->path.front());
+#if defined(ANDROID_XR)
+            const bool initialCameraPose = terCamera->initialCameraPosePending();
+#endif
+			CameraCoordinate coord;
+			coord.load(spline->path.front());
+#if defined(ANDROID_XR)
+			if(initialCameraPose) {
+				// Mission setup chooses the starting view before it is presented.
 				terCamera->setCoordinate(coord);
+                gameShell->alignXrCameraToScriptedView(0);
+				if(spline->useAsSpline) {
+					terCamera->loadPath(*spline, false);
+					terCamera->startReplayPath(xm::round(stepTime * 1000), cycles);
+				}
+				return;
+			}
+#endif
+			if(!spline->useAsSpline){
+#if defined(ANDROID_XR)
+                SaveCameraSplineData transition;
+                transition.path.push_back(spline->path.front());
+                terCamera->loadPath(transition, false);
+                terCamera->startReplayPath(0, 1);
+#else
+				terCamera->setCoordinate(coord);
+#endif
 			}
 			else{
+#if defined(ANDROID_XR)
+                // Replay supplies its own entry blend; keep loop points authored.
+                terCamera->loadPath(*spline, false);
+#else
 				terCamera->loadPath(*spline, smoothTransition);
+#endif
 				terCamera->startReplayPath(xm::round(stepTime * 1000), cycles);
 			}
 		}
@@ -1342,7 +1369,17 @@ void ActionSetCameraAtObject::activate(AIPlayer& aiPlayer)
 	terCamera->SetCameraFollow(0);
 
 	terUnitBase* unit = findUnit(aiPlayer);
+#if defined(ANDROID_XR)
+    const bool initialCameraPose = terCamera->initialCameraPosePending();
+#endif
 	if(setFollow && unit){
+#if defined(ANDROID_XR)
+        if(initialCameraPose) {
+            CameraCoordinate coord(unit->position2D(), terCamera->coordinate().psi(),
+                                   terCamera->coordinate().theta(), terCamera->coordinate().distance());
+            terCamera->setCoordinate(coord);
+        }
+#endif
 		terCamera->SetCameraFollow(unit, transitionTime*1000);
 	}
 	else{
@@ -1354,15 +1391,31 @@ void ActionSetCameraAtObject::activate(AIPlayer& aiPlayer)
 		else
 			return;
 		CameraCoordinate coord(position, terCamera->coordinate().psi(), terCamera->coordinate().theta(), terCamera->coordinate().distance());
+#if defined(ANDROID_XR)
+        if(initialCameraPose) {
+            terCamera->setCoordinate(coord);
+            gameShell->alignXrCameraToScriptedView(0);
+            return;
+        }
+        // Quest also interpolates camera events authored as instant cuts.
+        {
+#else
 		if(transitionTime){
+#endif
 			SaveCameraSplineData spline;
 			spline.path.push_back(SaveCameraData());
 			coord.save(spline.path.back());
+#if defined(ANDROID_XR)
+            terCamera->loadPath(spline, false);
+#else
 			terCamera->loadPath(spline, true);
+#endif
 			terCamera->startReplayPath(transitionTime*1000, 1);
 		}
+#if !defined(ANDROID_XR)
 		else
 			terCamera->setCoordinate(coord);
+#endif
 	}
 }
 
@@ -1375,10 +1428,21 @@ bool ActionSetCameraAtObject::workedOut(AIPlayer& aiPlayer)
 			terUnitBase* unit = findUnit(aiPlayer);
 			if(unit){
 				SaveCameraSplineData spline;
+#if defined(ANDROID_XR)
+                // Keep a full scripted turn; loadPath(true) would unwrap it away.
+                spline.path.push_back(SaveCameraData());
+                CameraCoordinate start = terCamera->coordinate();
+                start.psi() = cycle(start.psi(), 2*XM_PI);
+                start.save(spline.path.back());
+#endif
 				spline.path.push_back(SaveCameraData());
 				CameraCoordinate coord(unit->position2D(), cycle(terCamera->coordinate().psi(), 2*XM_PI) + 2*XM_PI, terCamera->coordinate().theta(), terCamera->coordinate().distance());
 				coord.save(spline.path.back());
+#if defined(ANDROID_XR)
+                terCamera->loadPath(spline, false);
+#else
 				terCamera->loadPath(spline, true);
+#endif
 				terCamera->startReplayPath(turnTime*1000, 1);
 				turnStarted_ = true;
 				return false;

@@ -7,6 +7,9 @@
 #include "SafeMath.h"
 #include "Universe.h"
 #include "GameShell.h"
+#if defined(ANDROID_XR)
+#include <limits>
+#endif
 
 terCameraType* terCamera = NULL;
 int cameraTiltLock = 1;
@@ -34,6 +37,7 @@ const float CAMERA_THETA_MIN = static_cast<float>(XM_PI/5.0);
 const float CAMERA_THETA_MAX = static_cast<float>(XM_PI/2.85);
 #endif
 #if defined(ANDROID_XR)
+static constexpr int XR_SCRIPTED_CAMERA_MIN_TRANSITION_MS = 500;
 const float CAMERA_XR_LEVEL_THETA = static_cast<float>(XM_PI / 2.0);
 #endif
 const float CAMERA_ZOOM_MAX = CAMERA_MAX_HEIGHT / 2.0f;
@@ -140,9 +144,11 @@ void CameraCoordinate::check(bool restricted)
 		position_.z = z + t*(CAMERA_ZOOM_GROUND_MAX - z);
 	}
 	
+#if !defined(ANDROID_XR)
 	float scroll_border = (distance() - CAMERA_ZOOM_MIN)/(CAMERA_ZOOM_MAX - CAMERA_ZOOM_MIN)*CAMERA_WORLD_SCROLL_BORDER;
 	position_.x = clamp(position().x, scroll_border, vMap.H_SIZE - scroll_border);
 	position_.y = clamp(position().y, scroll_border, vMap.V_SIZE - scroll_border);
+#endif
 	position_.z = FieldCluster::ZeroGround;
 
     distance_ = clamp(distance(), CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX);
@@ -482,9 +488,34 @@ void terCameraType::mouseWheel(float delta)
 int tilting_count = 0;
 void terCameraType::quant(float mouseDeltaX, float mouseDeltaY, float delta_time, bool tilting)
 {
+#if defined(ANDROID_XR)
+    if (xrPositionAlignmentDurationMs_ > 0) {
+        xrPositionAlignmentElapsedMs_ += std::max(delta_time, 0.0f) * 1000.0f;
+        const float t = std::min(xrPositionAlignmentElapsedMs_ /
+                                 xrPositionAlignmentDurationMs_, 1.0f);
+        const float eased = t * t * (3.0f - 2.0f * t);
+        xrRecenterPositionOffset_ = xrPositionAlignmentStart_ * (1.0f - eased);
+        if (t >= 1.0f)
+            xrPositionAlignmentDurationMs_ = 0;
+    }
+#endif
 	if(interpolationTimer_){
 		float t = (frame_time() - interpolationTimer_)/(float)interpolationDuration_;
 		if(t >= 1){
+#if defined(ANDROID_XR)
+            // Finish at the endpoint even when the frame overshoots its duration.
+            t = 1;
+            if (xrReplayEntry_) {
+                xrReplayEntry_ = false;
+                if (path_.size() == 1) {
+                    stopReplayPath();
+                } else {
+                    interpolationDuration_ = xrReplayStepDuration_;
+                    setPath(0);
+                    t = 0;
+                }
+            } else
+#endif
 			if(replayIndex_ != -1){
 				if(++replayIndex_ < replayIndexMax_){
 					setPath(replayIndex_);
@@ -596,7 +627,16 @@ void terCameraType::quant(float mouseDeltaX, float mouseDeltaY, float delta_time
 
 void terCameraType::setTarget(const CameraCoordinate& coord, int duration) 
 { 
+#if defined(ANDROID_XR)
+    // A focus/restore request replaces an active scripted transition.
+    stopReplayPath();
+    SetCameraFollow(nullptr);
+#endif
 	interpolationPoints_[0] = interpolationPoints_[1] = coordinate_;
+#if defined(ANDROID_XR)
+    interpolationPoints_[0].uncycle(coord);
+    interpolationPoints_[1] = interpolationPoints_[0];
+#endif
 	interpolationPoints_[2] = interpolationPoints_[3] = coord;
 	interpolationTimer_ = frame_time();
 	interpolationDuration_ = duration; 
@@ -629,8 +669,18 @@ void terCameraType::RestoreCamera(int n)
 
 void terCameraType::SetCameraFollow(terUnitBase* unit, int transitionTime)
 {
+#if defined(ANDROID_XR)
+    if (unit) {
+        stopReplayPath();
+        transitionTime = std::max(transitionTime, XR_SCRIPTED_CAMERA_MIN_TRANSITION_MS);
+    }
+#endif
 	unit_follow = unit;
 	unitFollowTimer_.start(transitionTime + 1);
+#if defined(ANDROID_XR)
+    if (unit)
+        gameShell->alignXrCameraToScriptedView(transitionTime + 1);
+#endif
 }
 
 void terCameraType::destroyLink()
@@ -643,6 +693,41 @@ void terCameraType::destroyLink()
 
 void terCameraType::startReplayPath(int duration, int cycles)
 {
+#if defined(ANDROID_XR)
+    stopReplayPath();
+    if (path_.empty())
+        return;
+
+    xrReplayStepDuration_ = interpolationDuration_ = std::max(duration, XR_SCRIPTED_CAMERA_MIN_TRANSITION_MS);
+    replayIndex_ = 0;
+    // Legacy mission data can contain zero or negative cycle counts.
+    const long long replaySteps = static_cast<long long>(std::max(cycles, 1)) *
+                                  static_cast<long long>(path_.size());
+    replayIndexMax_ = static_cast<int>(std::min(
+        replaySteps - 1, static_cast<long long>(std::numeric_limits<int>::max())));
+    CameraCoordinate entry = coordinate_;
+    entry.uncycle(path_.front());
+    const CameraCoordinate& first = path_.front();
+    const bool needsEntry = path_.size() == 1 ||
+        (entry.position() - first.position()).norm2() > 0.0001f ||
+        xm::abs(entry.psi() - first.psi()) > 0.0001f ||
+        xm::abs(entry.theta() - first.theta()) > 0.0001f ||
+        xm::abs(entry.distance() - first.distance()) > 0.0001f;
+    if (needsEntry) {
+        // Blend into the path without adding the entry pose to every loop.
+        xrReplayEntry_ = true;
+        interpolationPoints_[0] = interpolationPoints_[1] = entry;
+        interpolationPoints_[2] = interpolationPoints_[3] = first;
+        interpolationDuration_ = path_.size() == 1
+            ? xrReplayStepDuration_ : XR_SCRIPTED_CAMERA_MIN_TRANSITION_MS;
+        interpolationTimer_ = frame_time();
+    } else {
+        setPath(0);
+    }
+    // Use the actual entry/first-segment duration, including the XR minimum.
+    // Later spline points and loops do not restart rig alignment.
+    gameShell->alignXrCameraToScriptedView(interpolationDuration_);
+#else
 	interpolationDuration_ = duration; 
 
 	if(path_.empty())
@@ -661,10 +746,14 @@ void terCameraType::startReplayPath(int duration, int cycles)
 
 	replayIndexMax_ = cycles*path_.size() - 1;
 	setPath(replayIndex_ = 0);
+#endif
 }
 
 void terCameraType::stopReplayPath()
 {
+#if defined(ANDROID_XR)
+    xrReplayEntry_ = false;
+#endif
 	replayIndex_ = -1;
 	interpolationTimer_ = 0;
 }
@@ -749,8 +838,10 @@ void CameraCoordinate::load(const SaveCameraData& data)
 //-----------------------------------
 void terCameraType::startOscillation(int duration, float factor)
 {
+#if !defined(ANDROID_XR)
 	explodingFactor_ = factor;
 	oscillatingTimer_.start(explodingDuration_ = duration);
+#endif
 }
 
 void terCameraType::reset()
@@ -759,12 +850,26 @@ void terCameraType::reset()
 	stopReplayPath();
 #if defined(ANDROID_XR)
     xrRecenterPositionOffset_ = Vect3f::ZERO;
+    xrPositionAlignmentDurationMs_ = 0;
+    xrInitialCameraPosePending_.store(true);
 #endif
 }
 
 #if defined(ANDROID_XR)
+void terCameraType::alignXrPositionToScriptedCamera(int durationMs)
+{
+    xrPositionAlignmentStart_ = xrRecenterPositionOffset_;
+    xrPositionAlignmentElapsedMs_ = 0.0f;
+    xrPositionAlignmentDurationMs_ = std::max(durationMs, 0);
+    if (!xrPositionAlignmentDurationMs_) {
+        xrRecenterPositionOffset_ = Vect3f::ZERO;
+        update();
+    }
+}
+
 void terCameraType::recenterOrientation()
 {
+    xrPositionAlignmentDurationMs_ = 0;
     const Vect3f positionBefore = Camera->GetPos();
     // Theta is measured from world up: pi/2 looks forward and keeps world up
     // aligned with the view, so the base camera contributes no roll.
@@ -777,6 +882,16 @@ void terCameraType::recenterOrientation()
     xrRecenterPositionOffset_ += positionBefore - Camera->GetPos();
     update();
 }
+
+Vect3f terCameraType::translateXrPan(const Vect3f& worldDelta)
+{
+    const Vect3f before = coordinate_.position();
+    coordinate_.position().x += worldDelta.x;
+    coordinate_.position().y += worldDelta.y;
+    update();
+    return coordinate_.position() - before;
+}
+
 #endif
 
 

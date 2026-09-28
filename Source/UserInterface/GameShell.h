@@ -11,6 +11,9 @@
 #include "ReelManager.h"
 #include "CameraManager.h"
 #include <SDL_events.h>
+#if defined(ANDROID_XR)
+#include <atomic>
+#endif
 
 struct LocalizedText;
 class MissionEditor;
@@ -58,6 +61,10 @@ public:
 	void showWays();
 
 	bool LogicQuant();
+
+#if defined(ANDROID_XR)
+    void alignXrCameraToScriptedView(int transitionDurationMs);
+#endif
 
 	MissionEditor* missionEditor() const { return missionEditor_; }
 
@@ -335,6 +342,7 @@ private:
 #if defined(ANDROID_XR)
     cCamera* xrEyeCameras_[2] = {nullptr, nullptr};
     XrCameraRig* xrCameraRig_ = nullptr;
+    std::atomic<int> xrScriptedCameraAlignmentMs_{-1};
     float xrBuildAngle_ = 0.0f;
     bool xrPanelVisible_ = true;
     unsigned xrPanelHand_ = 0; // Left hand by default.

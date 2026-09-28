@@ -1154,6 +1154,7 @@ void OnButtonStructure(CShellWindow* pWnd, InterfaceEventCode code, int param)
 			}
 		}
 	} else if (code == EVENT_DOUBLECLICK) {
+#if !defined(ANDROID_XR)
 		CShellComplexPushButton* pBtn = (CShellComplexPushButton*)pWnd;
 		if (!pBtn->isEnabled()) {
 			terUnitAttributeID n_struct = Button2StructureID(pWnd->ID);
@@ -1164,6 +1165,7 @@ void OnButtonStructure(CShellWindow* pWnd, InterfaceEventCode code, int param)
 				}
 			}
 		}
+#endif
 	}
 }
 
@@ -1328,6 +1330,7 @@ void OnButtonOffensiveDefensive(CShellWindow* pWnd, InterfaceEventCode code, int
 
 void OnMapWindowClicked(CShellWindow* pWnd, InterfaceEventCode code, int param)
 {
+#if !defined(ANDROID_XR)
 	if( !_bMenuMode && !gameShell->isScriptReelEnabled() && gameShell->mouseLeftPressed() )
 	{
 		float x = (gameShell->mousePosition().x + 0.5f)*terRenderDevice->GetSizeX() - pWnd->x;
@@ -1339,6 +1342,7 @@ void OnMapWindowClicked(CShellWindow* pWnd, InterfaceEventCode code, int param)
 		if(x > 0 && y > 0 && x < vMap.H_SIZE && y < vMap.V_SIZE)
 			terCamera->setPosition(Vect2f(x, y));
 	}
+#endif
 	if (code == EVENT_RPRESSED) {
 		if (!universe()) {
 			return;
@@ -1425,6 +1429,7 @@ void OnButtonTerrainBuild(CShellWindow* pWnd, InterfaceEventCode code, int param
 	}
 	else if(code == EVENT_DOUBLECLICK)
 	{
+#if !defined(ANDROID_XR)
 		int nSlot = pWnd->ID - SQSH_FRAME_TERRAIN_BUILD1_ID;
 //		HT-SELECT!!!
 		if (mt_interface_quant) {
@@ -1432,6 +1437,7 @@ void OnButtonTerrainBuild(CShellWindow* pWnd, InterfaceEventCode code, int param
 			if(slotData->unit)
 				terCamera->setPosition(slotData->unit->position2D());
 		}
+#endif
 	}
 }
 
@@ -1478,8 +1484,10 @@ void OnSquadTabEvent(CShellWindow* pWnd, InterfaceEventCode code, int param)
 	}
 	else if(code == EVENT_DOUBLECLICK)
 	{
+#if !defined(ANDROID_XR)
 		if(!pSquad->Empty())
 			terCamera->setPosition(pSquad->position2D());
+#endif
 	}
 	else if(code == EVENT_RPRESSED)
 	{
@@ -1501,9 +1509,11 @@ void OnFrameTabEvent(CShellWindow* pWnd, InterfaceEventCode code, int param)
 {
 	if(code == EVENT_DOUBLECLICK)
 	{
+#if !defined(ANDROID_XR)
 		terUnitBase* pFrame = universe()->activePlayer()->frame();
 		if(pFrame)
 			terCamera->setPosition(pFrame->position2D());
+#endif
 	}
 }
 

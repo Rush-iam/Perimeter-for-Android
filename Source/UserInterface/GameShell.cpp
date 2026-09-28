@@ -45,6 +45,7 @@
 #include "AndroidTouchInput.h"
 #if defined(ANDROID_XR)
 #include "AndroidXrBootstrap.h"
+#include "AndroidXrListenerPose.h"
 #include "xr/XrCameraRig.h"
 #endif
 #include <cstring>
@@ -167,6 +168,33 @@ static void getXrHeadPosition(const AndroidXrEyeView views[2], float position[3]
 {
     for (unsigned axis = 0; axis < 3; ++axis)
         position[axis] = (views[0].position[axis] + views[1].position[axis]) * 0.5f;
+}
+
+static void publishXrListenerView(const XrCameraRig& rig, const MatXf& centerWorld,
+                                  const AndroidXrEyeView views[2],
+                                  const float headPosition[3], bool focused)
+{
+    if (!focused) {
+        androidXrClearListenerView();
+        return;
+    }
+    const auto& left = views[0].orientation;
+    const auto& right = views[1].orientation;
+    const QuatF leftQuat(left[3], left[0], left[1], left[2]);
+    QuatF rightQuat(right[3], right[0], right[1], right[2]);
+    if (leftQuat.dot(rightQuat) < 0.0f) rightQuat.negate();
+    QuatF headQuat = leftQuat + rightQuat;
+    headQuat.normalize();
+    const float headOrientation[4] = {headQuat.x(), headQuat.y(),
+                                      headQuat.z(), headQuat.s()};
+    MatXf listenerView = centerWorld * rig.Pose(headPosition, headOrientation);
+    listenerView.invert();
+    // SetCameraPosition flips view Y/Z for the renderer. Sound expects the
+    // original camera convention, so undo that basis change on the head view.
+    MatXf renderToSound = MatXf::ID;
+    renderToSound.rot()[1][1] = renderToSound.rot()[2][2] = -1.0f;
+    listenerView = renderToSound * listenerView;
+    androidXrPublishListenerView(listenerView);
 }
 
 static Vect3f getXrScalePivot(const XrCameraRig& rig, const MatXf& centerWorld,
@@ -586,6 +614,7 @@ windowClientSize_(1024, 768)
 GameShell::~GameShell()
 {
 #if defined(ANDROID_XR)
+    androidXrClearListenerView();
     delete xrCameraRig_;
 #endif
 	GameContinue = false;
@@ -732,6 +761,9 @@ void GameShell::GameStart(const MissionDescription& mission)
 	setSpeed(perimeter_ini.getFloat("Game", "GameSpeed"));
 
 	terCamera->reset();
+#if defined(ANDROID_XR)
+    androidXrClearListenerView();
+#endif
 
 	LoadProgressBlock(0.6f);
 	CurrentMission.packPlayerIDs();
@@ -1103,17 +1135,33 @@ void GameShell::Show()
         AndroidXrEyeView xrViews[2]{};
         AndroidXrInputFrame xrInput{};
         if (androidXrBeginFrame(xrViews, &xrInput)) {
-            if (xrInput.recentered) terCamera->recenterOrientation();
             cCamera* centerCamera = terCamera->GetCamera();
             if (!xrCameraRig_) xrCameraRig_ = new XrCameraRig();
             xrCameraRig_->BeginFrame(xrViews, xrInput.recentered);
+            const int scriptedAlignmentMs =
+                xrScriptedCameraAlignmentMs_.exchange(-1);
+            if (scriptedAlignmentMs >= 0)
+                xrCameraRig_->AlignOffsetToScriptedCamera(
+                    scriptedAlignmentMs * 0.001f);
             float headPosition[3]{};
             getXrHeadPosition(xrViews, headPosition);
             const float deltaSeconds = frame_time.delta() * 0.001f;
+            // XR tabletop navigation is locked during scripted scenes and
+            // while the camera is tracking a unit, matching the non-XR view.
+            const bool xrTableCameraLocked = isCutSceneMode() ||
+                isScriptReelEnabled() || terCamera->unitFollow() ||
+                terCamera->xrCameraTransitionActive() ||
+                xrCameraRig_->IsAligningToScriptedCamera();
+            // Honor runtime tracking recenter above, but preserve the authored
+            // camera angles and interpolation points while controls are locked.
+            if (xrInput.recentered && !xrTableCameraLocked)
+                terCamera->recenterOrientation();
+            const bool xrTableControlsEnabled =
+                xrInput.focused && !xrTableCameraLocked;
             MatXf centerWorld = centerCamera->GetMatrix();
             centerWorld.invert();
             const Vect3f tablePivot =
-                xrInput.focused && xrCameraRig_->NeedsTablePivot(
+                xrTableControlsEnabled && xrCameraRig_->NeedsTablePivot(
                     xrInput.hands[1].thumbstick[1],
                     xrInput.hands[1].thumbstickActive)
                     ? getXrScalePivot(*xrCameraRig_, centerWorld, xrViews)
@@ -1123,12 +1171,30 @@ void GameShell::Show()
                 (vMap.H_SIZE > 2048 ? 2.2f : 1.8f);
             const Vect3f skyCenter(vMap.H_SIZE * 0.5f,
                                    vMap.H_SIZE * 0.5f, 0.0f);
-            xrCameraRig_->UpdateControls(
-                xrInput.hands[0].thumbstick, xrInput.hands[0].thumbstickActive,
+            const Vect3f localPan = xrCameraRig_->UpdateControls(
+                xrInput.hands[0].thumbstick,
+                xrTableControlsEnabled && xrInput.hands[0].thumbstickActive,
                 xrInput.hands[1].thumbstick[1],
-                xrInput.focused && xrInput.hands[1].thumbstickActive,
+                xrTableControlsEnabled && xrInput.hands[1].thumbstickActive,
                 deltaSeconds, tablePivot, centerWorld, headPosition,
                 skyCenter, skyRadius);
+            if (localPan.norm2() > 0.000001f) {
+                Vect3f worldPan = centerWorld.rot() * localPan;
+                // CameraCoordinate moves over the map plane. Any vertical
+                // component remains in the XR offset to preserve this frame's
+                // rendered pose while minimap and scripts track its position.
+                worldPan.z = 0.0f;
+                const Vect3f appliedWorldPan =
+                    terCamera->translateXrPan(worldPan);
+                MatXf worldToCenter = centerWorld;
+                worldToCenter.invert();
+                xrCameraRig_->RebaseCameraPan(
+                    worldToCenter.rot() * appliedWorldPan);
+                centerWorld = centerCamera->GetMatrix();
+                centerWorld.invert();
+            }
+            publishXrListenerView(*xrCameraRig_, centerWorld, xrViews,
+                                  headPosition, xrInput.focused);
             terScene->PrepareViewFamily();
             prepareXrEyeCameras(*xrCameraRig_, terScene, centerCamera,
                                 xrEyeCameras_, xrViews);
@@ -1313,6 +1379,7 @@ void GameShell::Show()
             terScene->PostDraw(centerCamera);
             return;
         }
+        androidXrClearListenerView();
         if (androidXrSessionActive() && BuildingInstallerInited() &&
             !androidXrIsFocused()) {
             BuildingInstaller->CancelObject();
@@ -1434,6 +1501,8 @@ void GameShell::Show()
                 menuInput.focused && menuInput.hands[1].thumbstickActive,
                 deltaSeconds, tablePivot, centerWorld, headPosition,
                 Vect3f::ZERO, 0.0f);
+            publishXrListenerView(*xrCameraRig_, centerWorld, menuViews,
+                                  headPosition, menuInput.focused);
             prepareXrEyeCameras(*xrCameraRig_, terScene, centerCamera,
                                 xrEyeCameras_, menuViews);
             const unsigned uiWidth = static_cast<unsigned>(terRenderDevice->GetSizeX());
@@ -1539,6 +1608,7 @@ void GameShell::Show()
             androidXrEndFrame(rendered);
             return;
         }
+        androidXrClearListenerView();
         if (androidXrSessionActive() && !androidXrIsFocused()) {
             if (xrUiPressCaptured_)
                 _shellIconManager.lButtonReset();
@@ -2494,9 +2564,11 @@ void GameShell::ControlUnpressed(uint32_t key)
             setCameraMouseShift(false);
 			break;
         case CTRL_CAMERA_TO_EVENT:
+#if !defined(ANDROID_XR)
             if (!_shellIconManager.getMiniMapEventIcons().empty()) {
                 terCamera->setPosition(_shellIconManager.getMiniMapEventIcons().back().pos);
             }
+#endif
             break;
         case CTRL_TOGGLE_MUSIC:
         case CTRL_TOGGLE_SOUND:
@@ -2988,6 +3060,15 @@ void GameShell::makeMovieShot()
 
 void GameShell::CameraQuant()
 {
+#if defined(ANDROID_XR)
+    // Keep scripted/follow updates, but the controller's tablet pointer must
+    // not also drive legacy mouse navigation or edge scrolling.
+    MousePositionLock = 0;
+    const float xrDeltaSeconds = frame_time.delta() * 0.001f;
+    terCamera->quant(0.0f, 0.0f, xrDeltaSeconds, false);
+    terCamera->finishInitialCameraPose();
+    MouseMoveFlag = 0;
+#else
 	if(!cameraMouseTrack && cameraCursorInWindow && !_bMenuMode && 
 		!cameraMouseShift && !cameraMouseZoom && !isScriptReelEnabled()){
 		//сдвиг когда курсор у края окна
@@ -3026,7 +3107,18 @@ void GameShell::CameraQuant()
 	if (!_bMenuMode && !cameraMouseShift && !isScriptReelEnabled()) {
 		terCamera->controlQuant();
 	}
+#endif
 }
+
+#if defined(ANDROID_XR)
+void GameShell::alignXrCameraToScriptedView(int transitionDurationMs)
+{
+    const int durationMs = terCamera->initialCameraPosePending()
+        ? 0 : transitionDurationMs;
+    terCamera->alignXrPositionToScriptedCamera(durationMs);
+    xrScriptedCameraAlignmentMs_.store(durationMs);
+}
+#endif
 
 void terGameShellShowRegionMain()
 {
