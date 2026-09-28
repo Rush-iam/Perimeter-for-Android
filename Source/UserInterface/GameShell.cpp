@@ -1180,9 +1180,8 @@ void GameShell::Show()
                 skyCenter, skyRadius);
             if (localPan.norm2() > 0.000001f) {
                 Vect3f worldPan = centerWorld.rot() * localPan;
-                // CameraCoordinate moves over the map plane. Any vertical
-                // component remains in the XR offset to preserve this frame's
-                // rendered pose while minimap and scripts track its position.
+                // The rig already pans on the terrain plane. Remove conversion
+                // roundoff before rebasing into the game camera.
                 worldPan.z = 0.0f;
                 const Vect3f appliedWorldPan =
                     terCamera->translateXrPan(worldPan);
@@ -1496,7 +1495,8 @@ void GameShell::Show()
                     ? getXrScalePivot(*xrCameraRig_, centerWorld, menuViews)
                     : Vect3f::ZERO;
             xrCameraRig_->UpdateControls(
-                menuInput.hands[0].thumbstick, menuInput.hands[0].thumbstickActive,
+                menuInput.hands[0].thumbstick,
+                menuInput.focused && menuInput.hands[0].thumbstickActive,
                 menuInput.hands[1].thumbstick[1],
                 menuInput.focused && menuInput.hands[1].thumbstickActive,
                 deltaSeconds, tablePivot, centerWorld, headPosition,
