@@ -1376,7 +1376,7 @@ void ActionSetCameraAtObject::activate(AIPlayer& aiPlayer)
 #if defined(ANDROID_XR)
         if(initialCameraPose) {
             CameraCoordinate coord(unit->position2D(), terCamera->coordinate().psi(),
-                                   terCamera->coordinate().theta(), terCamera->coordinate().distance());
+                                   terCameraType::XR_UNIT_CAMERA_THETA, terCamera->coordinate().distance());
             terCamera->setCoordinate(coord);
         }
 #endif
@@ -1392,6 +1392,7 @@ void ActionSetCameraAtObject::activate(AIPlayer& aiPlayer)
 			return;
 		CameraCoordinate coord(position, terCamera->coordinate().psi(), terCamera->coordinate().theta(), terCamera->coordinate().distance());
 #if defined(ANDROID_XR)
+        coord.theta() = terCameraType::XR_UNIT_CAMERA_THETA;
         if(initialCameraPose) {
             terCamera->setCoordinate(coord);
             gameShell->alignXrCameraToScriptedView(0);
@@ -1407,10 +1408,12 @@ void ActionSetCameraAtObject::activate(AIPlayer& aiPlayer)
 			coord.save(spline.path.back());
 #if defined(ANDROID_XR)
             terCamera->loadPath(spline, false);
+            terCamera->startReplayPath(
+                std::max(transitionTime * 1000, terCameraType::XR_UNIT_CAMERA_MIN_TRANSITION_MS), 1);
 #else
 			terCamera->loadPath(spline, true);
-#endif
 			terCamera->startReplayPath(transitionTime*1000, 1);
+#endif
 		}
 #if !defined(ANDROID_XR)
 		else
@@ -1437,6 +1440,9 @@ bool ActionSetCameraAtObject::workedOut(AIPlayer& aiPlayer)
 #endif
 				spline.path.push_back(SaveCameraData());
 				CameraCoordinate coord(unit->position2D(), cycle(terCamera->coordinate().psi(), 2*XM_PI) + 2*XM_PI, terCamera->coordinate().theta(), terCamera->coordinate().distance());
+#if defined(ANDROID_XR)
+                coord.theta() = terCameraType::XR_UNIT_CAMERA_THETA;
+#endif
 				coord.save(spline.path.back());
 #if defined(ANDROID_XR)
                 terCamera->loadPath(spline, false);

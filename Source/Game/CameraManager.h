@@ -57,6 +57,9 @@ public:
 	void reset();
 
 #if defined(ANDROID_XR)
+    // Engine theta is measured from world up: pi/4 looks 45 degrees down.
+    static const float XR_UNIT_CAMERA_THETA;
+    static constexpr int XR_UNIT_CAMERA_MIN_TRANSITION_MS = 1000;
     void recenterOrientation();
     void alignXrPositionToScriptedCamera(int durationMs);
     bool xrCameraTransitionActive() const {
@@ -174,6 +177,7 @@ private:
 	int replayIndexMax_;
 #if defined(ANDROID_XR)
     bool xrReplayEntry_ = false;
+    bool xrReplayFollowsUnit_ = false;
     int xrReplayStepDuration_ = 0;
 #endif
 

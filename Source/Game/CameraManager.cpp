@@ -39,6 +39,7 @@ const float CAMERA_THETA_MAX = static_cast<float>(XM_PI/2.85);
 #if defined(ANDROID_XR)
 static constexpr int XR_SCRIPTED_CAMERA_MIN_TRANSITION_MS = 500;
 const float CAMERA_XR_LEVEL_THETA = static_cast<float>(XM_PI / 2.0);
+const float terCameraType::XR_UNIT_CAMERA_THETA = static_cast<float>(XM_PI / 4.0);
 #endif
 const float CAMERA_ZOOM_MAX = CAMERA_MAX_HEIGHT / 2.0f;
 const float CAMERA_ZOOM_MIN = CAMERA_MIN_HEIGHT + 100.0f;
@@ -500,6 +501,14 @@ void terCameraType::quant(float mouseDeltaX, float mouseDeltaY, float delta_time
     }
 #endif
 	if(interpolationTimer_){
+#if defined(ANDROID_XR)
+        if (xrReplayFollowsUnit_ && unit_follow) {
+            // Enter follow mode against the moving unit's current location.
+            const Vect3f target = To3Dzero(unit_follow->position2D());
+            interpolationPoints_[2].position() = target;
+            interpolationPoints_[3].position() = target;
+        }
+#endif
 		float t = (frame_time() - interpolationTimer_)/(float)interpolationDuration_;
 		if(t >= 1){
 #if defined(ANDROID_XR)
@@ -530,6 +539,15 @@ void terCameraType::quant(float mouseDeltaX, float mouseDeltaY, float delta_time
 				t = 1;
 			}
 		}
+#if defined(ANDROID_XR)
+        if (xrReplayEntry_) {
+            // Duplicated Hermite endpoints still have nonzero velocity. Use
+            // smoothstep for entry/cuts, leaving authored spline tangents intact.
+            const float eased = t * t * (3.0f - 2.0f * t);
+            coordinate_ = interpolationPoints_[1] * (1.0f - eased) +
+                          interpolationPoints_[2] * eased;
+        } else
+#endif
 		coordinate_.interpolateHermite(interpolationPoints_, t);
 		coordinate().check(false);
 	}
@@ -644,7 +662,16 @@ void terCameraType::setTarget(const CameraCoordinate& coord, int duration)
 
 void terCameraType::QuantCameraFollow(float delta_time)
 {
+#if defined(ANDROID_XR)
+    // Entry already established the pitch and focus. Keep ongoing tracking
+    // consistent across frame rates, matching the original response at 60 Hz.
+    const float tau = clamp(CAMERA_FOLLOW_AVERAGE_TAU, 0.0f, 1.0f);
+    const float alpha = delta_time > 0.0f
+        ? 1.0f - std::pow(1.0f - tau, delta_time * 60.0f) : 0.0f;
+    coordinate().position() += (unit_follow->position() - coordinate().position()) * alpha;
+#else
 	coordinate().position() += (unit_follow->position() - coordinate().position())*CAMERA_FOLLOW_AVERAGE_TAU*unitFollowTimer_();
+#endif
 }
 
 void terCameraType::SaveCamera(int n)
@@ -670,16 +697,28 @@ void terCameraType::RestoreCamera(int n)
 void terCameraType::SetCameraFollow(terUnitBase* unit, int transitionTime)
 {
 #if defined(ANDROID_XR)
-    if (unit) {
+    if (unit || xrReplayFollowsUnit_)
         stopReplayPath();
-        transitionTime = std::max(transitionTime, XR_SCRIPTED_CAMERA_MIN_TRANSITION_MS);
-    }
 #endif
 	unit_follow = unit;
 	unitFollowTimer_.start(transitionTime + 1);
 #if defined(ANDROID_XR)
-    if (unit)
-        gameShell->alignXrCameraToScriptedView(transitionTime + 1);
+    if (unit) {
+        cameraThetaForce = cameraThetaVelocity = 0.0f;
+        CameraCoordinate target(unit->position2D(), coordinate().psi(),
+                                XR_UNIT_CAMERA_THETA, coordinate().distance());
+        if (initialCameraPosePending()) {
+            setCoordinate(target);
+            gameShell->alignXrCameraToScriptedView(0);
+        } else {
+            SaveCameraSplineData entry;
+            entry.path.push_back(SaveCameraData());
+            target.save(entry.path.back());
+            loadPath(entry, false);
+            startReplayPath(std::max(transitionTime, XR_UNIT_CAMERA_MIN_TRANSITION_MS), 1);
+            xrReplayFollowsUnit_ = true;
+        }
+    }
 #endif
 }
 
@@ -753,6 +792,7 @@ void terCameraType::stopReplayPath()
 {
 #if defined(ANDROID_XR)
     xrReplayEntry_ = false;
+    xrReplayFollowsUnit_ = false;
 #endif
 	replayIndex_ = -1;
 	interpolationTimer_ = 0;
