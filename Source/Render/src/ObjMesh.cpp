@@ -155,6 +155,17 @@ bool cObjMesh::Intersect(const Vect3f& p0,const Vect3f& p1)
 	return cObjectNode::Intersect(p0,p1);
 }
 
+#if defined(ANDROID_XR)
+bool cObjMesh::IsVisibleForXrRay()
+{
+    if (GetAttr(ATTRUNKOBJ_IGNORE) || !pBank || !Tri || !AnimChannel) return false;
+    int visible = 1;
+    AnimChannel->GetChannel(GetCurrentChannel())->GetVisible(GetPhase(), visible);
+    return visible &&
+        pBank->GetRealAlpha(GetCurrentChannel(), GetPhase(), GetDiffuse()) >= 0.004f;
+}
+#endif
+
 void cObjMesh::GetAllPoints(std::vector<Vect3f>& point)
 {
 	if (!Tri) return;

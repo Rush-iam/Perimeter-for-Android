@@ -41,6 +41,9 @@ public:
 	cObjMesh* GetNextSorting(){return pSortingNext;}
 
 	bool Intersect(const Vect3f& p0,const Vect3f& p1) override;
+#if defined(ANDROID_XR)
+	bool IsVisibleForXrRay();
+#endif
 
 	void GetAllPoints(std::vector<Vect3f>& point);
 	void GetAllNormals(std::vector<Vect3f>& point);

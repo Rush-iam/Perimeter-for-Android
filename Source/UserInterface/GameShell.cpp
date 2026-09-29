@@ -47,6 +47,8 @@
 #include "AndroidXrBootstrap.h"
 #include "AndroidXrListenerPose.h"
 #include "xr/XrCameraRig.h"
+#include "xr/XrControllerRay.h"
+#include "xr/XrBuildingRay.h"
 #endif
 #include <cstring>
 #endif
@@ -132,12 +134,13 @@ static bool projectXrPointToScreen(const AndroidXrEyeView& eye,
 static void drawXrControllerLaser(cInterfaceRenderDevice* renderer,
                                   const AndroidXrEyeView& eye,
                                   const AndroidXrHandState& hand,
+                                  float distanceMeters,
                                   const sColor4c& color)
 {
     if (!hand.aimValid) return;
     const Vect3f direction = rotateXrVector(hand.aimOrientation, Vect3f(0, 0, -1));
     const Vect3f start(hand.aimPosition[0], hand.aimPosition[1], hand.aimPosition[2]);
-    const Vect3f finish = start + direction * 5.0f;
+    const Vect3f finish = start + direction * distanceMeters;
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     if (!projectXrPointToScreen(eye, start, renderer->GetSizeX(), renderer->GetSizeY(),
                                 &x0, &y0) ||
@@ -219,6 +222,78 @@ static Vect3f getXrScalePivot(const XrCameraRig& rig, const MatXf& centerWorld,
     rayDirection.normalize();
     constexpr float pivotDistanceGameUnits = 500.0f;
     return rayStart + rayDirection * pivotDistanceGameUnits;
+}
+
+static float getXrControllerLaserDistance(const AndroidXrHandState& hand,
+                                          const XrCameraRig& rig,
+                                          const MatXf& centerWorld,
+                                          unsigned uiWidth, unsigned uiHeight,
+                                          XrWorldRay& worldRay,
+                                          bool worldVisible,
+                                          const Vect3f& skyCenter = Vect3f::ZERO,
+                                          float skyRadius = 0.0f)
+{
+    if (!hand.aimValid) return 0.0f;
+    constexpr float fallbackDistanceMeters = 5.0f;
+    float panelX, panelY, panelDistance;
+    const bool panelHit = androidXrHitUiPanel(hand, uiWidth, uiHeight,
+                                             &panelX, &panelY, &panelDistance);
+    if (!worldVisible) return panelHit ? panelDistance : fallbackDistanceMeters;
+
+    const MatXf worldAim = centerWorld * rig.Pose(hand.aimPosition, hand.aimOrientation);
+    const Vect3f origin = worldAim.trans();
+    Vect3f direction = worldAim.rot() * Vect3f::K;
+    direction.normalize();
+    float distance = xrRaySphereDistance(origin, direction, skyCenter, skyRadius);
+    if (distance <= 0.0f) distance = fallbackDistanceMeters * rig.UnitsPerMeter();
+    if (panelHit) distance = std::min(distance, panelDistance * rig.UnitsPerMeter());
+
+    // cChaos draws its ocean at Z=0, extending from -3 to +4 map widths.
+    if (std::abs(direction.z) > 1.0e-6f) {
+        const float oceanDistance = -origin.z / direction.z;
+        const Vect3f ocean = origin + direction * oceanDistance;
+        if (oceanDistance > 0.0f && ocean.x >= -3.0f * vMap.H_SIZE &&
+            ocean.x <= 4.0f * vMap.H_SIZE && ocean.y >= -3.0f * vMap.V_SIZE &&
+            ocean.y <= 4.0f * vMap.V_SIZE)
+            distance = std::min(distance, oceanDistance);
+    }
+    const float terrainDistance = xrRayTerrainDistance(origin, direction,
+        vMap.H_SIZE, vMap.V_SIZE, distance, [](int x, int y) {
+            return vMap.GetAlt(x, y) / static_cast<float>(1 << VX_FRACTION);
+        });
+    if (terrainDistance > 0.0f) distance = std::min(distance, terrainDistance);
+    worldRay = {origin, direction, distance};
+    return distance / rig.UnitsPerMeter();
+}
+
+static void getXrControllerLaserDistances(const AndroidXrInputFrame& input,
+                                          const XrCameraRig& rig,
+                                          const MatXf& centerWorld,
+                                          unsigned uiWidth, unsigned uiHeight,
+                                          float (&distancesMeters)[2], bool worldVisible,
+                                          const Vect3f& skyCenter = Vect3f::ZERO,
+                                          float skyRadius = 0.0f)
+{
+    XrWorldRay worldRays[2];
+    for (unsigned hand = 0; hand < 2; ++hand)
+        distancesMeters[hand] = getXrControllerLaserDistance(input.hands[hand],
+            rig, centerWorld, uiWidth, uiHeight, worldRays[hand], worldVisible, skyCenter, skyRadius);
+    if (!worldVisible || (worldRays[0].distance <= 0.0f && worldRays[1].distance <= 0.0f)) return;
+
+    // UnitGrid is maintained by the logic thread. Use the locked player lists
+    // once for both controllers, restricting model checks to buildings and Frames.
+    for (terPlayer* player : universe()->Players) {
+        CUNITS_LOCK(player);
+        for (terUnitBase* unit : player->units()) {
+            if (!unit->alive() || !unit->avatar()) continue;
+            if (!unit->isBuilding() && unit->attr()->ID != UNIT_ATTRIBUTE_FRAME) continue;
+            cObjectNodeRoot* model = unit->avatar()->GetModelPoint();
+            if (model)
+                xrIntersectBuildingRays(*model, worldRays);
+        }
+    }
+    for (unsigned hand = 0; hand < 2; ++hand)
+        distancesMeters[hand] = worldRays[hand].distance / rig.UnitsPerMeter();
 }
 
 struct XrPanelHit {
@@ -1416,6 +1491,11 @@ void GameShell::Show()
                 terCircleShowGraph(xrBrushPosition, xrBrushRadius,
                                   circleColors.zeroLayerRadius);
             gbCircleShow->BeginStereoDraw();
+            androidXrSetUiPanelVisible(xrInput.focused && xrPanelVisible_ &&
+                panelTracked && _shellIconManager.interfaceShowFlag());
+            float laserDistances[2];
+            getXrControllerLaserDistances(xrInput, *xrCameraRig_, centerWorld,
+                uiWidth, uiHeight, laserDistances, true, skyCenter, skyRadius);
             const bool rendered = drawXrEyeViews(terRenderDevice, xrViews, [&](unsigned eye) {
                 cCamera* camera = xrEyeCameras_[eye];
                 terRenderDevice->SetRenderState(RS_FOGENABLE, false);
@@ -1431,14 +1511,12 @@ void GameShell::Show()
                     static_cast<int>(xrViews[eye].height));
                 for (unsigned hand = 0; hand < 2; ++hand) {
                     drawXrControllerLaser(terRenderDevice, xrViews[eye],
-                        xrInput.hands[hand], hand == 0 ? sColor4c(64, 180, 255, 255)
+                        xrInput.hands[hand], laserDistances[hand],
+                        hand == 0 ? sColor4c(64, 180, 255, 255)
                                                        : sColor4c(255, 180, 64, 255));
                 }
             });
             gbCircleShow->EndStereoDraw();
-            androidXrSetUiPanelVisible(xrInput.focused && xrPanelVisible_ &&
-                panelTracked &&
-                _shellIconManager.interfaceShowFlag());
             if (rendered && xrInput.focused && xrPanelVisible_ && panelTracked &&
                 _shellIconManager.interfaceShowFlag())
                 drawXrUiPanel(terRenderDevice, &m_ShellDispatcher,
@@ -1659,6 +1737,11 @@ void GameShell::Show()
                 xrUiPressHand_ = -1;
             }
 
+            androidXrSetUiPanelVisible(menuInput.focused && xrPanelVisible_ &&
+                _shellIconManager.interfaceShowFlag());
+            float laserDistances[2];
+            getXrControllerLaserDistances(menuInput, *xrCameraRig_, centerWorld,
+                uiWidth, uiHeight, laserDistances, false);
             const bool rendered = drawXrEyeViews(terRenderDevice, menuViews, [&](unsigned eye) {
                 terRenderDevice->SetDrawNode(xrEyeCameras_[eye]);
                 terRenderDevice->SetClipRect(0, 0,
@@ -1666,13 +1749,12 @@ void GameShell::Show()
                     static_cast<int>(menuViews[eye].height));
                 for (unsigned hand = 0; hand < 2; ++hand) {
                     drawXrControllerLaser(terRenderDevice, menuViews[eye],
-                        menuInput.hands[hand], hand == 0 ? sColor4c(64, 180, 255, 255)
+                        menuInput.hands[hand], laserDistances[hand],
+                        hand == 0 ? sColor4c(64, 180, 255, 255)
                                                          : sColor4c(255, 180, 64, 255));
                 }
                 terRenderDevice->FlushPrimitive3D();
             });
-            androidXrSetUiPanelVisible(menuInput.focused && xrPanelVisible_ &&
-                _shellIconManager.interfaceShowFlag());
             if (rendered && menuInput.focused && xrPanelVisible_ &&
                 _shellIconManager.interfaceShowFlag())
                 drawXrUiPanel(terRenderDevice, nullptr,
