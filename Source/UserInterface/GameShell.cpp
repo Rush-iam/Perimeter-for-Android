@@ -1423,6 +1423,12 @@ void GameShell::Show()
                 if (_shellIconManager.interfaceShowFlag())
                     universe()->ShowInfo(false);
                 showWays();
+                // DrawView restores the logical UI scissor. SetClipRect flushes
+                // pending primitives before changing it, so restore the full
+                // eye clip before queuing either controller laser.
+                terRenderDevice->SetClipRect(0, 0,
+                    static_cast<int>(xrViews[eye].width),
+                    static_cast<int>(xrViews[eye].height));
                 for (unsigned hand = 0; hand < 2; ++hand) {
                     drawXrControllerLaser(terRenderDevice, xrViews[eye],
                         xrInput.hands[hand], hand == 0 ? sColor4c(64, 180, 255, 255)
