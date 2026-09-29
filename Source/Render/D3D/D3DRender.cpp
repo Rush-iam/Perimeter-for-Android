@@ -731,6 +731,15 @@ int cD3DRender::Fill(int r,int g,int b,int a)
             static_cast<DWORD>(ScreenSize.y),
             0.0f, 1.0f
     };
+#if defined(ANDROID_XR)
+    if (frameColorTarget) {
+        // Clear the entire bound eye/panel, independently of the logical UI size.
+        D3DSURFACE_DESC targetDesc{};
+        RDCALL(frameColorTarget->GetDesc(&targetDesc));
+        vp.Width = targetDesc.Width;
+        vp.Height = targetDesc.Height;
+    }
+#endif
 	RDCALL(lpD3DDevice->SetViewport(&vp));
 	RDCALL(lpD3DDevice->Clear(0,NULL,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER|((RenderMode&RENDERDEVICE_MODE_STRENCIL)?D3DCLEAR_STENCIL:0),
 		D3DCOLOR_RGBA(r,g,b,a),1,0));

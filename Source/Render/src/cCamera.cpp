@@ -1464,6 +1464,12 @@ bool cCamera::IsBadClip()
 		sz.set(RenderDevice->GetSizeX(),RenderDevice->GetSizeY());
 	else
 		sz.set(RenderTarget->GetWidth(),RenderTarget->GetHeight());
+#if defined(ANDROID_XR)
+	// Eye viewports use their own extent, independently of the UI window size.
+	// Match UpdateVieport so a smaller panel cannot reject a valid eye camera.
+	if(viewSizeOverride.x > 0 && viewSizeOverride.y > 0)
+		sz = viewSizeOverride;
+#endif
 
 	if(vp.X<0 || vp.Y<0)
 		return true;
