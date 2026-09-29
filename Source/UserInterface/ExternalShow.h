@@ -22,6 +22,10 @@ public:
 	void Circle(const Vect3f& pos,float r,const CircleColor& attr);
 	void Show(int dotted);
 	void Quant();
+#if defined(ANDROID_XR)
+	void BeginStereoDraw();
+	void EndStereoDraw();
+#endif
 
 	void Lock();
 	void Unlock();
@@ -57,6 +61,9 @@ protected:
 	void CircleShow(const Vect3f& pos,float r, const CircleColor& circleColor);
 
 	bool no_interpolation;
+#if defined(ANDROID_XR)
+	bool stereoDraw_ = false;
+#endif
 	bool in_lock;//для assert
 	MTDECLARE(lock);
 };

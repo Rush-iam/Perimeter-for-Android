@@ -166,7 +166,10 @@ void cCircleShow::Show(int dotted)
 			sCircleGraph& c=*it;
 			CircleShow(c.pos,c.r,c.attr);
 		}
-		tp.circles_graph.clear();
+#if defined(ANDROID_XR)
+		if (!stereoDraw_)
+#endif
+			tp.circles_graph.clear();
 	}
 	Unlock();
 }
@@ -179,6 +182,26 @@ void cCircleShow::Clear()
 		it->circles.clear();
 	}
 }
+
+#if defined(ANDROID_XR)
+void cCircleShow::BeginStereoDraw()
+{
+	MTG();
+	Lock();
+	stereoDraw_ = true;
+	Unlock();
+}
+
+void cCircleShow::EndStereoDraw()
+{
+	MTG();
+	Lock();
+	stereoDraw_ = false;
+	for (auto& type : types)
+		type.circles_graph.clear();
+	Unlock();
+}
+#endif
 
 
 void cCircleShow::Quant()

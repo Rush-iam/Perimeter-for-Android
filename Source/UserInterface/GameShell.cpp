@@ -1411,14 +1411,14 @@ void GameShell::Show()
             terScene->PrepareTerrainViewFamily(xrEyeCameras_[0], xrEyeCameras_[1]);
             if (_shellIconManager.interfaceShowFlag())
                 universe()->PrepareShowInfo();
+            // Keep transient placement and brush circles for both eye views.
+            if (xrBrushRadius > 0.0f)
+                terCircleShowGraph(xrBrushPosition, xrBrushRadius,
+                                  circleColors.zeroLayerRadius);
+            gbCircleShow->BeginStereoDraw();
             const bool rendered = drawXrEyeViews(terRenderDevice, xrViews, [&](unsigned eye) {
                 cCamera* camera = xrEyeCameras_[eye];
                 terRenderDevice->SetRenderState(RS_FOGENABLE, false);
-                // Circle graph entries are consumed by each draw. Queue the
-                // same brush again for each eye without applying edits twice.
-                if (xrBrushRadius > 0.0f)
-                    terCircleShowGraph(xrBrushPosition, xrBrushRadius,
-                                      circleColors.zeroLayerRadius);
                 terScene->DrawView(camera);
                 if (_shellIconManager.interfaceShowFlag())
                     universe()->ShowInfo(false);
@@ -1435,6 +1435,7 @@ void GameShell::Show()
                                                        : sColor4c(255, 180, 64, 255));
                 }
             });
+            gbCircleShow->EndStereoDraw();
             androidXrSetUiPanelVisible(xrInput.focused && xrPanelVisible_ &&
                 panelTracked &&
                 _shellIconManager.interfaceShowFlag());
