@@ -348,6 +348,7 @@ private:
     unsigned xrPanelHand_ = 0; // Left hand by default.
     bool xrUiPressCaptured_ = false;
     int xrUiPressHand_ = -1;
+    int xrZeroplastHand_ = -1;
 #endif
 
     float game_speed;

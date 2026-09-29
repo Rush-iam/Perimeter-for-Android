@@ -291,6 +291,37 @@ int OnMouseMoveRegionEdit2(float x, float y)
 	return 1;
 }
 
+#if defined(ANDROID_XR)
+Vect3f CShellLogicDispatcher::UpdateXrZeroplastBrush(const Vect3f& worldPosition,
+                                                   bool paint, float& brushRadius)
+{
+    auto* regions = regionMetaDispatcher();
+    MetaRegionLock lock(regions);
+    brushRadius = regions->getToolzerRadius();
+    const float margin = brushRadius + TOOLZER_EXTRA_MARGIN;
+    Vect3f bounded = worldPosition;
+    bounded.x = clamp(bounded.x, margin, vMap.H_SIZE - margin - 1);
+    bounded.y = clamp(bounded.y, margin, vMap.V_SIZE - margin - 1);
+    if (!paint || m_nEditRegion != editRegion1 ||
+        gameShell->CurrentMission.gameType_ == GT_PLAY_RELL)
+        return bounded;
+
+    if (!m_bCanFlip) {
+        // Match the tablet's erase tool: remove both abyss and Zeroplast areas.
+        regions->setActiveLayer(editRegion2 - 1);
+        // The operation belongs to the selected layer, not the dispatcher.
+        regions->setOperation(false);
+        regions->activeLayer()->moveToolzer(Vect2f(bounded));
+        regions->operate();
+        regions->setActiveLayer(editRegion1 - 1);
+    }
+    regions->setOperation(m_bCanFlip && _shellIconManager.getCurrentEnabledOperation());
+    regions->activeLayer()->moveToolzer(Vect2f(bounded));
+    regions->operate();
+    return bounded;
+}
+#endif
+
 void OnToolzerSizeChange(float y)
 {
 	int s = SIGN(y);

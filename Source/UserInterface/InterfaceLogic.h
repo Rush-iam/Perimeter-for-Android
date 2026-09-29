@@ -103,6 +103,10 @@ struct CShellLogicDispatcher
 	void setArrowCursor();
 
 	void RegionEndEdit();
+#if defined(ANDROID_XR)
+    Vect3f UpdateXrZeroplastBrush(const Vect3f& worldPosition, bool paint,
+                                float& brushRadius);
+#endif
 	void updateSmallCamera();
 
 	RegionMetaDispatcher* regionMetaDispatcher() const;
