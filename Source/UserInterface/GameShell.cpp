@@ -49,7 +49,7 @@
 #include "xr/XrCameraRig.h"
 #include "xr/XrControllerRay.h"
 #include "xr/XrControllerLaser.h"
-#include "xr/XrBuildingRay.h"
+#include "xr/XrUnitRay.h"
 #include "DrawBuffer.h"
 #include "VertexFormat.h"
 #endif
@@ -283,15 +283,14 @@ static void getXrControllerLaserDistances(const AndroidXrInputFrame& input,
     if (!worldVisible || (worldRays[0].distance <= 0.0f && worldRays[1].distance <= 0.0f)) return;
 
     // UnitGrid is maintained by the logic thread. Use the locked player lists
-    // once for both controllers, restricting model checks to buildings and Frames.
+    // once for both controllers and check visible unit models.
     for (terPlayer* player : universe()->Players) {
         CUNITS_LOCK(player);
         for (terUnitBase* unit : player->units()) {
             if (!unit->alive() || !unit->avatar()) continue;
-            if (!unit->isBuilding() && unit->attr()->ID != UNIT_ATTRIBUTE_FRAME) continue;
             cObjectNodeRoot* model = unit->avatar()->GetModelPoint();
             if (model)
-                xrIntersectBuildingRays(*model, worldRays);
+                xrIntersectUnitRays(*model, worldRays);
         }
     }
     for (unsigned hand = 0; hand < 2; ++hand)
@@ -331,6 +330,12 @@ static void prepareXrEyeCameras(XrCameraRig& rig, cScene* scene,
         camera->SetViewSizeOverride(static_cast<float>(view.width),
                                     static_cast<float>(view.height));
         camera->SetClip(sRectangle4f(-0.5f, -0.5f, 0.5f, 0.5f));
+        // The game camera's 30-unit near plane can be meters away in XR when
+        // the tabletop is enlarged. Keep the eye's near plane within 5 cm so
+        // the controller beam remains at its real depth close to the viewer.
+        const Vect2f zPlane = camera->GetZPlane();
+        camera->SetZPlaneTemp(Vect2f(std::min(zPlane.x, rig.UnitsPerMeter() * 0.05f),
+                                     zPlane.y));
         camera->SetAsymmetricPerspective(std::tan(view.fov[0]),
             std::tan(view.fov[1]), std::tan(view.fov[2]), std::tan(view.fov[3]));
     }
