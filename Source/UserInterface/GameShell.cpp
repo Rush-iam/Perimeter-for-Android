@@ -1677,24 +1677,14 @@ void GameShell::Show()
             float uiPointerX = 0.0f;
             float uiPointerY = 0.0f;
             if (menuInput.focused) {
-                bool togglePanel = false;
-                for (unsigned hand = 0; hand < 2; ++hand) {
-                    if (menuInput.hands[hand].pressed & ANDROID_XR_PANEL)
-                        togglePanel = true;
-                }
-                if (togglePanel)
-                    xrPanelVisible_ = !xrPanelVisible_;
-                if (xrUiPressCaptured_ &&
-                    (togglePanel || !xrPanelVisible_ ||
-                     !_shellIconManager.interfaceShowFlag())) {
+                if (xrUiPressCaptured_ && !_shellIconManager.interfaceShowFlag()) {
                     _shellIconManager.lButtonReset();
                     xrUiPressCaptured_ = false;
                     xrUiPressHand_ = -1;
                 }
-                androidXrSetUiPanelVisible(xrPanelVisible_ &&
-                    _shellIconManager.interfaceShowFlag());
+                androidXrSetUiPanelVisible(_shellIconManager.interfaceShowFlag());
                 XrPanelHit panelHits[2];
-                if (xrPanelVisible_ && _shellIconManager.interfaceShowFlag()) {
+                if (_shellIconManager.interfaceShowFlag()) {
                     for (unsigned hand = 0; hand < 2; ++hand)
                         panelHits[hand].valid = androidXrHitUiPanel(
                             menuInput.hands[hand], uiWidth, uiHeight,
@@ -1750,7 +1740,7 @@ void GameShell::Show()
                 xrUiPressHand_ = -1;
             }
 
-            androidXrSetUiPanelVisible(menuInput.focused && xrPanelVisible_ &&
+            androidXrSetUiPanelVisible(menuInput.focused &&
                 _shellIconManager.interfaceShowFlag());
             float laserDistances[2];
             getXrControllerLaserDistances(menuInput, *xrCameraRig_, centerWorld,
@@ -1769,7 +1759,7 @@ void GameShell::Show()
                 }
                 terRenderDevice->FlushPrimitive3D();
             });
-            if (rendered && menuInput.focused && xrPanelVisible_ &&
+            if (rendered && menuInput.focused &&
                 _shellIconManager.interfaceShowFlag())
                 drawXrUiPanel(terRenderDevice, nullptr,
                               uiWidth, uiHeight, uiPointerVisible, uiPointerX, uiPointerY);
