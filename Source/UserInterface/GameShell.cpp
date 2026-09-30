@@ -1232,6 +1232,13 @@ void GameShell::Show()
             }
         };
         if (androidXrBeginFrame(xrViews, &xrInput)) {
+            // Menu callbacks can close the mission while this XR frame is open.
+            terUniverse* const frameUniverse = universe();
+            const auto endXrFrameIfMissionChanged = [&]() {
+                if (GameActive && universe() == frameUniverse) return false;
+                androidXrEndFrame(false);
+                return true;
+            };
             cCamera* centerCamera = terCamera->GetCamera();
             if (!xrCameraRig_) xrCameraRig_ = new XrCameraRig();
             xrCameraRig_->BeginFrame(xrViews, xrInput.recentered);
@@ -1365,8 +1372,10 @@ void GameShell::Show()
                     mousePosition_ = pointerPosition;
                     CursorOverInterface = _shellIconManager.OnMouseMove(
                         pointerPosition.x + 0.5f, pointerPosition.y + 0.5f);
+                    if (endXrFrameIfMissionChanged()) return;
                     m_ShellDispatcher.OnMouseMove(pointerPosition.x + 0.5f,
                                                   pointerPosition.y + 0.5f);
+                    if (endXrFrameIfMissionChanged()) return;
                 }
 
                 if (xrUiPressCaptured_) {
@@ -1377,8 +1386,19 @@ void GameShell::Show()
                     if (released) {
                         const float x = pointerPosition.x + 0.5f;
                         const float y = pointerPosition.y + 0.5f;
-                        if (!_shellIconManager.OnLButtonUp(x, y))
+                        const bool uiHandled = _shellIconManager.OnLButtonUp(x, y);
+                        if (endXrFrameIfMissionChanged()) {
+                            xrUiPressCaptured_ = false;
+                            xrUiPressHand_ = -1;
+                            return;
+                        }
+                        if (!uiHandled)
                             m_ShellDispatcher.OnLButtonUp(x, y);
+                        if (endXrFrameIfMissionChanged()) {
+                            xrUiPressCaptured_ = false;
+                            xrUiPressHand_ = -1;
+                            return;
+                        }
                         _shellIconManager.lButtonReset();
                         xrUiPressCaptured_ = false;
                         xrUiPressHand_ = -1;
@@ -1452,8 +1472,11 @@ void GameShell::Show()
                             if ((input.pressed & ANDROID_XR_SELECT) && !xrUiPressCaptured_) {
                                 const float x = panelHits[handIndex].x / uiWidth;
                                 const float y = panelHits[handIndex].y / uiHeight;
-                                if (!_shellIconManager.OnLButtonDown(x, y))
+                                const bool uiHandled = _shellIconManager.OnLButtonDown(x, y);
+                                if (endXrFrameIfMissionChanged()) return;
+                                if (!uiHandled)
                                     m_ShellDispatcher.OnLButtonDown(x, y);
+                                if (endXrFrameIfMissionChanged()) return;
                                 xrUiPressCaptured_ = true;
                                 xrUiPressHand_ = static_cast<int>(handIndex);
                             }
@@ -1492,6 +1515,7 @@ void GameShell::Show()
                 xrUiPressHand_ = -1;
             }
 
+            if (endXrFrameIfMissionChanged()) return;
             // Refresh selection after XR input and model interpolation, so its
             // circles appear in the same frame as the selected unit's bar.
             {
