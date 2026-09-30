@@ -346,7 +346,7 @@ private:
     float xrBuildAngle_ = 0.0f;
     bool xrPanelVisible_ = true;
     unsigned xrPanelHand_ = 0; // Left hand by default.
-    bool xrMenuBackdropWasReady_ = false;
+    bool xrMenuPanelPoseAnchored_ = false;
     bool xrUiPressCaptured_ = false;
     int xrUiPressHand_ = -1;
     int xrZeroplastHand_ = -1;

@@ -1178,7 +1178,7 @@ void GameShell::Show()
 	frame_time.next_frame();
 
 #if defined(ANDROID_XR)
-	if (GameActive) xrMenuBackdropWasReady_ = false;
+	if (GameActive) xrMenuPanelPoseAnchored_ = false;
 #endif
 	if(GameActive){
 
@@ -1657,17 +1657,19 @@ void GameShell::Show()
             if (menuInput.recentered) terCamera->recenterOrientation();
             cCamera* centerCamera = terCamera->GetCamera();
             if (!xrCameraRig_) xrCameraRig_ = new XrCameraRig();
-            // The history briefing also uses this render path. Align only
-            // the main menu backdrop to the headset's entry heading.
+            // Keep the authored menu heading frame through the history
+            // briefing so its 3D scene stays aligned with the fixed UI panel.
             const bool menuBackdrop = bwScene->ready();
+            const bool menuHeadingAligned = menuBackdrop || historyScene->ready();
             const bool menuSceneReady = bgScene->ready();
             const bool menuMotionControlsEnabled = !menuSceneReady;
-            // Re-anchor after loading or a runtime recenter before the panel
-            // pose is initialized from the current headset view.
-            if (menuSceneReady && (!xrMenuBackdropWasReady_ || menuInput.recentered))
+            // Anchor once after the menu backdrop first loads. Keep the panel
+            // in that world position through screen transitions, even if the
+            // backdrop briefly becomes unready while entering the briefing.
+            if (menuSceneReady && (!xrMenuPanelPoseAnchored_ || menuInput.recentered))
                 androidXrResetUiPanelPose();
-            xrMenuBackdropWasReady_ = menuSceneReady;
-            xrCameraRig_->SetMenuHeadingAligned(menuBackdrop);
+            if (menuSceneReady) xrMenuPanelPoseAnchored_ = true;
+            xrCameraRig_->SetMenuHeadingAligned(menuHeadingAligned);
             xrCameraRig_->BeginFrame(menuViews, menuInput.recentered);
             float headPosition[3]{};
             getXrHeadPosition(menuViews, headPosition);
