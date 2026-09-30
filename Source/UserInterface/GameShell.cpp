@@ -48,7 +48,10 @@
 #include "AndroidXrListenerPose.h"
 #include "xr/XrCameraRig.h"
 #include "xr/XrControllerRay.h"
+#include "xr/XrControllerLaser.h"
 #include "xr/XrBuildingRay.h"
+#include "DrawBuffer.h"
+#include "VertexFormat.h"
 #endif
 #include <cstring>
 #endif
@@ -99,54 +102,53 @@ static Vect3f rotateXrVector(const float orientation[4], const Vect3f& value)
         value * (scalar * scalar - dotAxisAxis) + cross * (2.0f * scalar);
 }
 
-static bool projectXrPointToScreen(const AndroidXrEyeView& eye,
-                                  const Vect3f& trackingPoint,
-                                  int screenWidth, int screenHeight,
-                                  int* screenX, int* screenY)
-{
-    if (!screenWidth || !screenHeight || !eye.width || !eye.height || !screenX || !screenY)
-        return false;
-    const float inverseEyeOrientation[4] = {
-        -eye.orientation[0], -eye.orientation[1], -eye.orientation[2], eye.orientation[3]};
-    const Vect3f fromEye(trackingPoint.x - eye.position[0],
-                         trackingPoint.y - eye.position[1],
-                         trackingPoint.z - eye.position[2]);
-    const Vect3f eyePoint = rotateXrVector(inverseEyeOrientation, fromEye);
-    const float depth = -eyePoint.z;
-    if (depth <= 0.001f) return false;
-    const float tanLeft = std::tan(eye.fov[0]);
-    const float tanRight = std::tan(eye.fov[1]);
-    const float tanDown = std::tan(eye.fov[2]);
-    const float tanUp = std::tan(eye.fov[3]);
-    const float tanWidth = tanRight - tanLeft;
-    const float tanHeight = tanUp - tanDown;
-    if (tanWidth <= 0.0f || tanHeight <= 0.0f) return false;
-    const float u = (eyePoint.x / depth - tanLeft) / tanWidth;
-    const float v = (tanUp - eyePoint.y / depth) / tanHeight;
-
-    // DrawLine(int, ...) uses the renderer's logical ScreenSize, while each
-    // OpenXR eye buffer has its own extent. Preserve normalized eye coordinates.
-    *screenX = static_cast<int>(u * screenWidth);
-    *screenY = static_cast<int>(v * screenHeight);
-    return true;
-}
-
 static void drawXrControllerLaser(cInterfaceRenderDevice* renderer,
+                                  cCamera* camera, float unitsPerMeter,
                                   const AndroidXrEyeView& eye,
                                   const AndroidXrHandState& hand,
                                   float distanceMeters,
                                   const sColor4c& color)
 {
-    if (!hand.aimValid) return;
+    if (!hand.aimValid || distanceMeters <= 0.0f || !eye.width || !eye.height) return;
     const Vect3f direction = rotateXrVector(hand.aimOrientation, Vect3f(0, 0, -1));
     const Vect3f start(hand.aimPosition[0], hand.aimPosition[1], hand.aimPosition[2]);
     const Vect3f finish = start + direction * distanceMeters;
-    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-    if (!projectXrPointToScreen(eye, start, renderer->GetSizeX(), renderer->GetSizeY(),
-                                &x0, &y0) ||
-        !projectXrPointToScreen(eye, finish, renderer->GetSizeX(), renderer->GetSizeY(),
-                                &x1, &y1)) return;
-    renderer->DrawLine(x0, y0, x1, y1, color, 3.0f);
+    const float inverseEyeOrientation[4] = {
+        -eye.orientation[0], -eye.orientation[1], -eye.orientation[2], eye.orientation[3]};
+    const Vect3f eyePosition(eye.position[0], eye.position[1], eye.position[2]);
+    Vect3f corners[4];
+    if (!xrBuildControllerLaserMesh(
+            rotateXrVector(inverseEyeOrientation, start - eyePosition),
+            rotateXrVector(inverseEyeOrientation, finish - eyePosition),
+            camera->GetZPlane().x / unitsPerMeter, corners)) return;
+
+    renderer->SetNoMaterial(ALPHA_BLEND);
+    const uint32_t zwrite = renderer->GetRenderState(RS_ZWRITEENABLE);
+    const uint32_t zenable = renderer->GetRenderState(RS_ZENABLE);
+    const uint32_t zfunc = renderer->GetRenderState(RS_ZFUNC);
+    const uint32_t cullMode = renderer->GetRenderState(RS_CULLMODE);
+    renderer->SetDrawTransform(camera);
+    renderer->SetWorldMat4f(nullptr);
+    renderer->SetRenderState(RS_ZWRITEENABLE, 0);
+    renderer->SetRenderState(RS_ZENABLE, 1);
+    // DrawScene leaves CMP_ALWAYS set for 2D overlays. Restore a real depth
+    // comparison so world geometry can hide the controller laser.
+    renderer->SetRenderState(RS_ZFUNC, CMP_LESSEQUAL);
+    auto* buffer = renderer->GetDrawBuffer(sVertexXYZDT1::fmt, PT_TRIANGLES);
+    auto* vertices = buffer->LockQuad<sVertexXYZDT1>(1);
+    const uint32_t diffuse = renderer->ConvertColor(color);
+    for (unsigned i = 0; i < 4; ++i) {
+        Vect3f world;
+        camera->GetMatrix().invXformPoint(corners[i] * unitsPerMeter, world);
+        vertices[i].setPos(world);
+        vertices[i].diffuse = diffuse;
+        vertices[i].u1() = vertices[i].v1() = 0.0f;
+    }
+    buffer->Unlock();
+    renderer->SetRenderState(RS_ZFUNC, zfunc);
+    renderer->SetRenderState(RS_ZENABLE, zenable);
+    renderer->SetRenderState(RS_ZWRITEENABLE, zwrite);
+    renderer->SetRenderState(RS_CULLMODE, cullMode);
 }
 
 static void drawXrPanelCursor(cInterfaceRenderDevice* renderer, float pixelX, float pixelY)
@@ -1510,7 +1512,8 @@ void GameShell::Show()
                     static_cast<int>(xrViews[eye].width),
                     static_cast<int>(xrViews[eye].height));
                 for (unsigned hand = 0; hand < 2; ++hand) {
-                    drawXrControllerLaser(terRenderDevice, xrViews[eye],
+                    drawXrControllerLaser(terRenderDevice, camera,
+                        xrCameraRig_->UnitsPerMeter(), xrViews[eye],
                         xrInput.hands[hand], laserDistances[hand],
                         hand == 0 ? sColor4c(64, 180, 255, 255)
                                                        : sColor4c(255, 180, 64, 255));
@@ -1748,7 +1751,8 @@ void GameShell::Show()
                     static_cast<int>(menuViews[eye].width),
                     static_cast<int>(menuViews[eye].height));
                 for (unsigned hand = 0; hand < 2; ++hand) {
-                    drawXrControllerLaser(terRenderDevice, menuViews[eye],
+                    drawXrControllerLaser(terRenderDevice, xrEyeCameras_[eye],
+                        xrCameraRig_->UnitsPerMeter(), menuViews[eye],
                         menuInput.hands[hand], laserDistances[hand],
                         hand == 0 ? sColor4c(64, 180, 255, 255)
                                                          : sColor4c(255, 180, 64, 255));
