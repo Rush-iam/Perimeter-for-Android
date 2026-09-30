@@ -9,6 +9,7 @@
 #include "Sample.h"
 #include "AudioPlayer.h"
 #if defined(ANDROID_XR)
+#include "GameShellSq.h"
 #include "xr/XrSceneCamera.h"
 #endif
 
@@ -21,7 +22,14 @@ extern float GlobalParticleRate;
 
 extern MusicPlayer gb_Music;
 
+#if defined(ANDROID_XR)
+constexpr float kMenuCameraDurationScale = 2.0f; // 50% of the normal speed.
+#endif
+
 HistoryScene::HistoryScene() {
+#if defined(ANDROID_XR)
+	bwMode = false;
+#endif
 	scene = 0;
 	sceneSky = 0;
 	cameraSky = 0;
@@ -86,6 +94,9 @@ void HistoryScene::goToJustAfterMissionPosition(int missionNumber) {
 
 void HistoryScene::resetCamera() {
 	historyCamera->reset();
+#if defined(ANDROID_XR)
+	if (bwMode) historyCamera->setStepDuration(HISTORY_CAMERA_FLY_TIME * kMenuCameraDurationScale);
+#endif
 }
 
 
@@ -95,6 +106,9 @@ void HistoryScene::init(cVisGeneric* visGeneric, bool bw, bool addBlendAlphaMode
 	}
 
 	bwMode = bw;
+#if defined(ANDROID_XR)
+	if (bwMode) historyCamera->setStepDuration(HISTORY_CAMERA_FLY_TIME * kMenuCameraDurationScale);
+#endif
 
 	fnt = terVisGeneric->CreateGameFont("Arial", HISTORY_SCENE_LOG_FONT_SIZE);
 	logFnt = terVisGeneric->CreateGameFont("Arial", BRIEFING_LOG_FONT_SIZE);
