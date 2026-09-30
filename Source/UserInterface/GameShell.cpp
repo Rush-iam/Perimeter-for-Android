@@ -1223,6 +1223,7 @@ void GameShell::Show()
             };
             cCamera* centerCamera = terCamera->GetCamera();
             if (!xrCameraRig_) xrCameraRig_ = new XrCameraRig();
+            xrCameraRig_->SetMenuHeadingAligned(false);
             xrCameraRig_->BeginFrame(xrViews, xrInput.recentered);
             const int scriptedAlignmentMs =
                 xrScriptedCameraAlignmentMs_.exchange(-1);
@@ -1653,6 +1654,10 @@ void GameShell::Show()
             if (menuInput.recentered) terCamera->recenterOrientation();
             cCamera* centerCamera = terCamera->GetCamera();
             if (!xrCameraRig_) xrCameraRig_ = new XrCameraRig();
+            // The history briefing also uses this render path. Align only
+            // the main menu backdrop to the headset's entry heading.
+            const bool menuBackdrop = bwScene->ready();
+            xrCameraRig_->SetMenuHeadingAligned(menuBackdrop);
             xrCameraRig_->BeginFrame(menuViews, menuInput.recentered);
             float headPosition[3]{};
             getXrHeadPosition(menuViews, headPosition);
