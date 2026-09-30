@@ -1700,7 +1700,7 @@ void GameShell::Show()
             const unsigned uiHeight = static_cast<unsigned>(terRenderDevice->GetSizeY());
             if (bgScene->ready()) {
                 const float unitsPerMeter = xrCameraRig_->UnitsPerMeter();
-                constexpr float menuPanelForwardOffsetMeters = 0.7f;
+                constexpr float menuPanelForwardOffsetMeters = 0.5f;
                 const float menuPanelDistanceMeters =
                     bgScene->xrMenuPanelDistanceUnits() / unitsPerMeter;
                 float panelDistanceMeters =
