@@ -775,7 +775,7 @@ void terFilthSpot::ShowInfo()
         }
         text += getEnumDescriptor(FILTH_SPOT_ID_NONE)->name(FilthParamID);
         Vect3f e,w;
-		terCamera->GetCamera()->ConvertorWorldToViewPort(&position(),&w,&e);
+		terUnitInfoCamera()->ConvertorWorldToViewPort(&position(),&w,&e);
 		terRenderDevice->SetFont(gameShell->debugFont());
 		if(selected())
 		{

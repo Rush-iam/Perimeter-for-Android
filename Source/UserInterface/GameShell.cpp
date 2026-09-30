@@ -1490,6 +1490,12 @@ void GameShell::Show()
                 xrUiPressHand_ = -1;
             }
 
+            // Refresh selection after XR input and model interpolation, so its
+            // circles appear in the same frame as the selected unit's bar.
+            {
+                MTAutoSingleThread logicLock;
+                universe()->select.ShowCircles();
+            }
             terScene->PrepareTerrainViewFamily(xrEyeCameras_[0], xrEyeCameras_[1]);
             if (_shellIconManager.interfaceShowFlag())
                 universe()->PrepareShowInfo();
@@ -1507,15 +1513,14 @@ void GameShell::Show()
                 cCamera* camera = xrEyeCameras_[eye];
                 terRenderDevice->SetRenderState(RS_FOGENABLE, false);
                 terScene->DrawView(camera);
-                if (_shellIconManager.interfaceShowFlag())
-                    universe()->ShowInfo(false);
-                showWays();
-                // DrawView restores the logical UI scissor. SetClipRect flushes
-                // pending primitives before changing it, so restore the full
-                // eye clip before queuing either controller laser.
+                // DrawView restores the logical UI scissor, but world overlays
+                // are projected into the full eye target.
                 terRenderDevice->SetClipRect(0, 0,
                     static_cast<int>(xrViews[eye].width),
                     static_cast<int>(xrViews[eye].height));
+                if (_shellIconManager.interfaceShowFlag())
+                    universe()->ShowInfo(false);
+                showWays();
                 for (unsigned hand = 0; hand < 2; ++hand) {
                     drawXrControllerLaser(terRenderDevice, camera,
                         xrCameraRig_->UnitsPerMeter(), xrViews[eye],

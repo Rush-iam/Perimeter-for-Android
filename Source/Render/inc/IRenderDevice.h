@@ -262,6 +262,9 @@ public:
                              cTexture *Tex1,cTexture *Tex2,float lerp_factor,float alpha=1,float phase=0,eColorMode mode=COLOR_MOD,eBlendMode blend_mode=ALPHA_NONE);
     
     virtual void DrawLine(int x1,int y1,int x2,int y2,const sColor4c& color, float width = 1.0);
+#if defined(ANDROID_XR)
+    void DrawLineSubpixel(float x1,float y1,float x2,float y2,const sColor4c& color, float width = 1.0f);
+#endif
     virtual void DrawPixel(int x1,int y1, const sColor4c& color);
     virtual void DrawRectangle(int x,int y,int dx,int dy,const sColor4c& color, float outline = 0.0);
     virtual void FlushPrimitive2D();

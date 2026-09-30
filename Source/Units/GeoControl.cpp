@@ -155,7 +155,7 @@ void terGeoControl::ShowInfo()
 	if(gameShell->missionEditor())
 	{
 		Vect3f e,w;
-		terCamera->GetCamera()->ConvertorWorldToViewPort(&position(),&w,&e);
+		terUnitInfoCamera()->ConvertorWorldToViewPort(&position(),&w,&e);
 		terRenderDevice->SetFont(gameShell->debugFont());
         std::string text;
         const std::string& locale = getLocale();

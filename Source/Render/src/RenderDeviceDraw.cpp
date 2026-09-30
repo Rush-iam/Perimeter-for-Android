@@ -297,10 +297,25 @@ float cInterfaceRenderDevice::getThinLineWidth() const {
 }
 
 void cInterfaceRenderDevice::DrawLine(int x1,int y1,int x2,int y2,const sColor4c& color, float width) {    
-    if (x1 <= x2) { if (x2<0 || x1>ScreenSize.x) return; }
-    else if (x1 < 0 || x2 > ScreenSize.x) return;
-    if (y1 <= y2) { if (y2<0 || y1>ScreenSize.y) return; }
-    else if (y1 < 0 || y2 > ScreenSize.y) return;
+#if defined(ANDROID_XR)
+    DrawLineSubpixel(static_cast<float>(x1), static_cast<float>(y1),
+                     static_cast<float>(x2), static_cast<float>(y2), color, width);
+}
+
+void cInterfaceRenderDevice::DrawLineSubpixel(float x1,float y1,float x2,float y2,
+                                               const sColor4c& color, float width) {
+#endif
+    int drawWidth = ScreenSize.x, drawHeight = ScreenSize.y;
+#if defined(ANDROID_XR)
+    if (DrawNode && !DrawNode->GetRenderTarget()) {
+        drawWidth = static_cast<int>(DrawNode->GetRenderSize().x);
+        drawHeight = static_cast<int>(DrawNode->GetRenderSize().y);
+    }
+#endif
+    if (x1 <= x2) { if (x2<0 || x1>drawWidth) return; }
+    else if (x1 < 0 || x2 > drawWidth) return;
+    if (y1 <= y2) { if (y2<0 || y1>drawHeight) return; }
+    else if (y1 < 0 || y2 > drawHeight) return;
 
     SetNoMaterial(ALPHA_BLEND);
     UseOrthographicProjection();
@@ -399,10 +414,17 @@ void cInterfaceRenderDevice::DrawLine(int x1,int y1,int x2,int y2,const sColor4c
 
 void cInterfaceRenderDevice::DrawRectangle(int x1,int y1,int dx,int dy,const sColor4c& color, float outline) {
     int x2=x1+dx,y2=y1+dy;
-    if (0 <= dx) { if (x2<0 || x1>ScreenSize.x) return; }
-    else if (x1 < 0 || x2 > ScreenSize.x) return;
-    if (0 <= dy) { if (y2<0 || y1>ScreenSize.y) return; }
-    else if (y1 < 0 || y2 > ScreenSize.y) return;
+    int drawWidth = ScreenSize.x, drawHeight = ScreenSize.y;
+#if defined(ANDROID_XR)
+    if (DrawNode && !DrawNode->GetRenderTarget()) {
+        drawWidth = static_cast<int>(DrawNode->GetRenderSize().x);
+        drawHeight = static_cast<int>(DrawNode->GetRenderSize().y);
+    }
+#endif
+    if (0 <= dx) { if (x2<0 || x1>drawWidth) return; }
+    else if (x1 < 0 || x2 > drawWidth) return;
+    if (0 <= dy) { if (y2<0 || y1>drawHeight) return; }
+    else if (y1 < 0 || y2 > drawHeight) return;
 
     SetNoMaterial(ALPHA_BLEND);
     UseOrthographicProjection();
@@ -574,9 +596,26 @@ void cInterfaceRenderDevice::DrawLine(const Vect3f &v1,const Vect3f &v2, const s
     if (!DrawNode) {
         return;
     }
-    static Vect3f p1v, p1e, p2v, p2e;
-    DrawNode->ConvertorWorldToViewPort(&v1, &p1v, &p1e);
-    DrawNode->ConvertorWorldToViewPort(&v2, &p2v, &p2e);
+    Vect3f lineStart = v1, lineEnd = v2;
+#if defined(ANDROID_XR)
+    // Clip in eye space before projection. Projecting a point at the near
+    // plane (or behind it) produces huge 2D coordinates for path segments.
+    Vect3f eyeStart, eyeEnd;
+    DrawNode->GetMatrix().xformPoint(lineStart, eyeStart);
+    DrawNode->GetMatrix().xformPoint(lineEnd, eyeEnd);
+    const float nearDepth = DrawNode->GetZPlane().x * 1.01f;
+    if (eyeStart.z <= nearDepth && eyeEnd.z <= nearDepth) return;
+    if (eyeStart.z < nearDepth) {
+        lineStart += (lineEnd - lineStart) *
+            ((nearDepth - eyeStart.z) / (eyeEnd.z - eyeStart.z));
+    } else if (eyeEnd.z < nearDepth) {
+        lineEnd += (lineStart - lineEnd) *
+            ((nearDepth - eyeEnd.z) / (eyeStart.z - eyeEnd.z));
+    }
+#endif
+    Vect3f p1v, p1e, p2v, p2e;
+    DrawNode->ConvertorWorldToViewPort(&lineStart, &p1v, &p1e);
+    DrawNode->ConvertorWorldToViewPort(&lineEnd, &p2v, &p2e);
     //Only draw if one of points is not behind camera
     if (0 >= p1v.z && 0 >= p2v.z) return;
     
@@ -594,7 +633,11 @@ void cInterfaceRenderDevice::DrawLine(const Vect3f &v1,const Vect3f &v2, const s
     //If still behind camera cancel it
     if (0 >= p1v.z && 0 >= p2v.z) return;
     
+#if defined(ANDROID_XR)
+    DrawLineSubpixel(p1e.x, p1e.y, p2e.x, p2e.y, color, 1.5f);
+#else
     DrawLine(p1e.x, p1e.y, p2e.x, p2e.y, color, 1.5f);
+#endif
 }
 
 void cInterfaceRenderDevice::DrawPoint(const Vect3f &v1, const sColor4c& color) {

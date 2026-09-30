@@ -57,6 +57,7 @@ void cD3DRender::SetFrameRenderTarget(IDirect3DSurface9* color, IDirect3DSurface
 	FlushActiveDrawBuffer();
 	frameColorTarget = color;
 	frameDepthTarget = color ? depth : nullptr;
+	isOrthographicProjSet = false;
 	// The next draw must bind the new root target even if it reuses the camera.
 	DrawNode = nullptr;
 	RestoreRenderTarget();

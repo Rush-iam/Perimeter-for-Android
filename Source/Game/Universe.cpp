@@ -335,7 +335,9 @@ void terUniverse::AvatarQuant()
 	stream_interpolator.SetInAvatar(false);
 	stream_interpolator.Unlock();
 
+#if !defined(ANDROID_XR)
 	select.ShowCircles();
+#endif
 }
  
 void terUniverse::ShowInfo()

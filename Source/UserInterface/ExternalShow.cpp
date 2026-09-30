@@ -23,6 +23,22 @@
 
 #define GAME_SHELL_SHOW_REGION_TRIANGLESTRIP_LOCK_SIZE 16
 
+#if defined(ANDROID_XR)
+static float xrCircleTerrainHeight(float x, float y)
+{
+    const int x0 = static_cast<int>(std::floor(x));
+    const int y0 = static_cast<int>(std::floor(y));
+    const float fx = x - x0, fy = y - y0;
+    const float h00 = vMap.GetAlt(vMap.XCYCL(x0), vMap.YCYCL(y0));
+    const float h10 = vMap.GetAlt(vMap.XCYCL(x0 + 1), vMap.YCYCL(y0));
+    const float h01 = vMap.GetAlt(vMap.XCYCL(x0), vMap.YCYCL(y0 + 1));
+    const float h11 = vMap.GetAlt(vMap.XCYCL(x0 + 1), vMap.YCYCL(y0 + 1));
+    return ((h00 * (1.0f - fx) + h10 * fx) * (1.0f - fy) +
+            (h01 * (1.0f - fx) + h11 * fx) * fy) /
+           static_cast<float>(1 << VX_FRACTION);
+}
+#endif
+
 float terExternalEnergyTextureStart = 0;
 float terExternalEnergyTextureEnd = GAME_SHELL_SHOW_REGION_U_STEP;
 //--------------------------------------------------
@@ -231,10 +247,18 @@ void cCircleShow::CircleShow(const Vect3f& pos,float r, const CircleColor& circl
 		//Кривовато, т.к. только для определённой сцены
 		if(width<0)
 		{
+#if defined(ANDROID_XR)
+			// Selection circle width follows the eye's scale. Keep its opacity
+			// independent of the desktop camera's distance from the table.
+			cCamera* eyeCamera = gb_RenderDevice->GetDrawNode();
+			float dist = pos.distance(eyeCamera ? eyeCamera->GetPos() : terCamera->GetCamera()->GetPos());
+			width = std::max(0.25f, -dist * width);
+#else
 			float dist = pos.distance(terCamera->GetCamera()->GetPos());
 			width =  -dist * width;
 			float alpha = dist * float(diffuse.a) / maxAlphaCircleColorHeight;
 			diffuse.a = (alpha > 255) ? 255.0f : alpha;
+#endif
 		}
 
 		float da = XM_PI * 2.0f / (float)(num_da);
@@ -266,7 +290,11 @@ void cCircleShow::CircleShow(const Vect3f& pos,float r, const CircleColor& circl
 			dn.x *= width;
 			dn.y *= width;
 
+#if defined(ANDROID_XR)
+			float z0 = ZFIX + xrCircleTerrainHeight(tp.x, tp.y);
+#else
 			float z0 = ZFIX+(float)(vMap.GetAlt(vMap.XCYCL(xm::round(tp.x)), vMap.YCYCL(xm::round(tp.y))) >> VX_FRACTION);
+#endif
             
             db->AutoLockTriangleStripStep(GAME_SHELL_SHOW_REGION_TRIANGLESTRIP_LOCK_SIZE, 1, vb, ib);
 

@@ -70,7 +70,18 @@ void terUnitBase::ShowCircles()
 	}
 	if(avatar())
 	{
+#if defined(ANDROID_XR)
+		// Use the same rendered model pose as the XR health bar. The logic
+		// endpoints may belong to a different render frame.
+		const auto* model = avatar()->GetModelPoint();
+		const float t = gb_VisGeneric->GetInterpolationFactor();
+		const Vect3f rendered = model
+			? model->GetPosition().trans()
+			: avatar()->pos0() * (1.0f - t) + avatar()->pos1() * t;
+		terCircleShow(rendered, rendered, r, color);
+#else
 		terCircleShow(avatar()->pos0(),avatar()->pos1(),r,color);
+#endif
 	}else
 	{
 		terCircleShow(position(),position(),r,color);

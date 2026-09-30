@@ -228,13 +228,13 @@ void terNatureObject::ShowInfo()
 	if(gameShell->missionEditor()){
 		if(selected()){
 			Vect3f e,w;
-			terCamera->GetCamera()->ConvertorWorldToViewPort(&position(),&w,&e);
+			terUnitInfoCamera()->ConvertorWorldToViewPort(&position(),&w,&e);
 			terRenderDevice->DrawRectangle(xm::round(e.x) - 8, xm::round(e.y) - 2, 16, 4, sColor4c(255, 255, 255, 255), 0);
 		}
 
 		if(strlen(label())){
 			Vect3f e,w;
-			terCamera->GetCamera()->ConvertorWorldToViewPort(&position(),&w,&e);
+			terUnitInfoCamera()->ConvertorWorldToViewPort(&position(),&w,&e);
 			terRenderDevice->OutText(xm::round(e.x), xm::round(e.y), label(), sColor4f(RED));
 		}
 	}

@@ -191,5 +191,8 @@ private:
 
 extern terCameraType* terCamera;
 
+// Use the camera that owns the current unit info pass (one camera per eye in XR).
+cCamera* terUnitInfoCamera();
+
 
 #endif //__CAMERA_MANAGER_H__

@@ -12,6 +12,16 @@
 #endif
 
 terCameraType* terCamera = NULL;
+
+cCamera* terUnitInfoCamera()
+{
+#if defined(ANDROID_XR)
+    return terRenderDevice->GetDrawNode();
+#else
+    return terCamera->GetCamera();
+#endif
+}
+
 int cameraTiltLock = 1;
 
 //Area to consider around the center in pixels

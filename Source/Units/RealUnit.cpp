@@ -826,7 +826,7 @@ void terUnitReal::showPath(const std::vector<Vect3f>& wayPoints) {
 				posPrev = *i;
 			}
 			Vect3f w, e;
-			terCamera->GetCamera()->ConvertorWorldToViewPort(&posPrev,&w,&e);
+			terUnitInfoCamera()->ConvertorWorldToViewPort(&posPrev,&w,&e);
 			if(e.z < 1.0f)
 				terRenderDevice->DrawRectangle(xm::round(e.x) - 2, xm::round(e.y) - 2, 4, 4, pathColor, 0);
 		}
@@ -862,15 +862,45 @@ void terUnitReal::ShowInfo()
 
 	}
 */
-	if ( (marked() || Player->marked()) && !(unitClass() & UNIT_CLASS_BASE) && alive() && selectAble() ) {
+	bool showMark = marked() || Player->marked();
+#if defined(ANDROID_XR)
+	// Military members are selected through their squad, not individually.
+	showMark = showMark || selected() ||
+		(GetSquadPoint() && GetSquadPoint()->selected());
+#endif
+	if (showMark && !(unitClass() & UNIT_CLASS_BASE) && alive() && selectAble()) {
+		Vect3f pos = interpolatedPosition();
+#if defined(ANDROID_XR)
+		cCamera* eyeCamera = terUnitInfoCamera();
+		Vect3f center = pos + Vect3f(0, 0, radius() * attr()->SelectionDistance);
+		Vect3f eyePosition;
+		eyeCamera->GetMatrix().xformPoint(center, eyePosition);
+		if (eyePosition.z <= eyeCamera->GetZPlane().x) return;
+
+		// Face the eye around world up, so head roll does not tilt the bar.
+		const Vect3f toEye = eyeCamera->GetPos() - center;
+		Vect3f right(-toEye.y, toEye.x, 0);
+		if (right.norm2() < 1e-6f) right.set(1, 0, 0);
+		right.normalize();
+		const float width = (maxHealth() * markHealthWidthCoeffA +
+			markHealthWidthCoeffB) * terRenderDevice->GetSizeX();
+		const Vect3f left = center - right * (width * 0.5f);
+		const Vect3f end = center + right * (width * 0.5f);
+		const float phase = std::max(0.0f, std::min(1.0f, life()));
+		sColor4c color(255, 255, 0, 255);
+		if (phase > 0.5f) color.r = 510.0f * (1.0f - phase);
+		else color.g = 510.0f * phase;
+		sColor4c background(color);
+		background.a = 96;
+		terRenderDevice->DrawLine(left, end, background);
+		terRenderDevice->DrawLine(left, left + right * (width * phase), color);
+#else
 		Vect3f e;
 		Vect3f pv;
 
-		Vect3f pos = interpolatedPosition();
-
 //		terCamera->GetCamera()->ConvertorWorldToViewPort(&(avatar()->matrix().trans()),&pv,&e);
-		terCamera->GetCamera()->ConvertorWorldToViewPort(&pos,&pv,&e);
-		float radiusFactor = terCamera->GetCamera()->GetFocusViewPort().x / pv.z;
+		terUnitInfoCamera()->ConvertorWorldToViewPort(&pos,&pv,&e);
+		float radiusFactor = terUnitInfoCamera()->GetFocusViewPort().x / pv.z;
 		int r = 0;
 		if (radius()) {
 			r = xm::round(radius() * radiusFactor);
@@ -886,6 +916,7 @@ void terUnitReal::ShowInfo()
 			r*2 * attr()->SelectionSize,
 			r*2 * attr()->SelectionSize,0, life());
 */
+#endif
 	}
 }
 

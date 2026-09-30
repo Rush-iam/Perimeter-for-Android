@@ -647,7 +647,7 @@ void terUnitSquad::showPath(const std::vector<Vect2f>& wayPoints, const std::vec
 				}
 			
 				Vect3f w, e;
-				terCamera->GetCamera()->ConvertorWorldToViewPort(&posPrev,&w,&e);
+				terUnitInfoCamera()->ConvertorWorldToViewPort(&posPrev,&w,&e);
 				if(e.z < 1.0f)
 					terRenderDevice->DrawRectangle(xm::round(e.x) - 2, xm::round(e.y) - 2, 4, 4, pathColor, 0);
 			}
@@ -660,7 +660,7 @@ void terUnitSquad::showPath(const std::vector<Vect2f>& wayPoints, const std::vec
 				FOR_EACH(patrolPoints, pi){
 					Vect3f w, e;
 					Vect3f pos = To3D(*pi);
-					terCamera->GetCamera()->ConvertorWorldToViewPort(&pos,&w,&e);
+					terUnitInfoCamera()->ConvertorWorldToViewPort(&pos,&w,&e);
 					if(e.z < 1.0f)
 						terRenderDevice->DrawRectangle(xm::round(e.x) - 2, xm::round(e.y) - 2, 4, 4, patrolColor, 0);
 					terRenderDevice->DrawLine(posPrev, pos, patrolColor);
@@ -704,7 +704,7 @@ void terUnitSquad::ShowInfo()
 				}
 			
 				Vect3f w, e;
-				terCamera->GetCamera()->ConvertorWorldToViewPort(&posPrev,&w,&e);
+				terUnitInfoCamera()->ConvertorWorldToViewPort(&posPrev,&w,&e);
 				if(e.z < 1.0f)
 					terRenderDevice->DrawRectangle(round(e.x) - 2,round(e.y) - 2,4,4,pathColor,0);
 			}
@@ -717,7 +717,7 @@ void terUnitSquad::ShowInfo()
 				FOR_EACH(patrolPoints_, pi){
 					Vect3f w, e;
 					Vect3f pos = To3D(*pi);
-					terCamera->GetCamera()->ConvertorWorldToViewPort(&pos,&w,&e);
+					terUnitInfoCamera()->ConvertorWorldToViewPort(&pos,&w,&e);
 					if(e.z < 1.0f)
 						terRenderDevice->DrawRectangle(round(e.x) - 2,xm::round(e.y) - 2,4,4,patrolColor,0);
 					terRenderDevice->DrawLine(posPrev, pos, patrolColor);
