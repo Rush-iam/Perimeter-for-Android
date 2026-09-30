@@ -1815,6 +1815,14 @@ void GameShell::Show()
                     terScene->DrawView(xrEyeCameras_[eye]);
                 }
                 if (menuBackdropReady) {
+                    if (!menuHistoryScene) {
+                        // Shade the base scene before drawing the menu meshes.
+                        terRenderDevice->DrawRectangle(0, 0,
+                            static_cast<int>(menuViews[eye].width),
+                            static_cast<int>(menuViews[eye].height),
+                            sColor4c(0, 0, 0, 96));
+                        terRenderDevice->FlushPrimitive2D();
+                    }
                     bgScene->drawXrView(eye);
                     menuCamera = bgScene->xrCamera(eye);
                 }

@@ -7,6 +7,7 @@
 #include "SourceUIResolution.h"
 #if defined(ANDROID_XR)
 #include "xr/XrSceneCamera.h"
+#include "AnimChannelNode.h"
 #endif
 
 BGScene::BGScene() {
@@ -62,6 +63,21 @@ void BGScene::init(cVisGeneric* visGeneric) {
 
 	bgObj = scene->CreateObject("RESOURCE\\Models\\Menu\\interface.M3D", NULL);
 	setSkinColor();
+#if defined(ANDROID_XR)
+	// Plane01 is the finite dark filter. Force just this mesh hidden across all
+	// of its visibility channels; the other animated menu meshes stay intact.
+	if (bgObj) {
+		if (cObjectNode* shadePlane = bgObj->FindObject("Plane01")) {
+			if (cAnimChannelNode* animation = shadePlane->GetAnimChannel()) {
+				for (int channel = 0; channel < animation->GetNumberChannel(); ++channel) {
+					cAnimChainNode* chain = animation->GetChannel(channel);
+					for (int key = 0; key < chain->GetNumberVisible(); ++key)
+						chain->GetVisible(key).visible = 0;
+				}
+			}
+		}
+	}
+#endif
 }
 
 void BGScene::onResolutionChanged() {
