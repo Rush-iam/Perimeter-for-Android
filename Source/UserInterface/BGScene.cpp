@@ -32,13 +32,13 @@ void BGScene::init(cVisGeneric* visGeneric) {
 	camera = scene->CreateCamera();
 	camera->SetAttr(ATTRCAMERA_PERSPECTIVE);
 	camera->SetAttr(ATTRCAMERA_CLEARZBUFFER);
-
-    onResolutionChanged();
-
 	Vect3f pos;
 	pos.setSpherical(bgCameraPsi, bgCameraTheta, bgCameraDist);
-
 	pos += Vect3f(bgCameraX, bgCameraY, bgCameraZ);
+#if defined(ANDROID_XR)
+	menuPanelDistanceUnits = pos.norm();
+#endif
+	onResolutionChanged();
 
 	MatXf matrix = MatXf::ID;
 	matrix.rot() = Mat3f(bgCameraTheta, X_AXIS) * Mat3f(XM_PI / 2 - bgCameraPsi, Z_AXIS);
@@ -73,6 +73,9 @@ void BGScene::onResolutionChanged() {
         //This keeps aspect ratio fixed on Y axis
         float f = MAIN_MENU_RATIO / getRenderRatio();
         Vect2f focus(f, f);
+#if defined(ANDROID_XR)
+		menuPanelWidthUnits = menuPanelDistanceUnits / focus.x;
+#endif
         Vect2f zplane(10.0f, 1e5f);
         camera->SetFrustum(
                 &center,								// центр камеры

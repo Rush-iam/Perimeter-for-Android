@@ -1177,6 +1177,9 @@ void GameShell::Show()
 	start_timer_auto(GS_Show,STATISTICS_GROUP_TOTAL);
 	frame_time.next_frame();
 
+#if defined(ANDROID_XR)
+	if (GameActive) xrMenuBackdropWasReady_ = false;
+#endif
 	if(GameActive){
 
 		if(!isPaused())
@@ -1657,6 +1660,13 @@ void GameShell::Show()
             // The history briefing also uses this render path. Align only
             // the main menu backdrop to the headset's entry heading.
             const bool menuBackdrop = bwScene->ready();
+            const bool menuSceneReady = bgScene->ready();
+            const bool menuMotionControlsEnabled = !menuSceneReady;
+            // Re-anchor after loading or a runtime recenter before the panel
+            // pose is initialized from the current headset view.
+            if (menuSceneReady && (!xrMenuBackdropWasReady_ || menuInput.recentered))
+                androidXrResetUiPanelPose();
+            xrMenuBackdropWasReady_ = menuSceneReady;
             xrCameraRig_->SetMenuHeadingAligned(menuBackdrop);
             xrCameraRig_->BeginFrame(menuViews, menuInput.recentered);
             float headPosition[3]{};
@@ -1665,16 +1675,19 @@ void GameShell::Show()
             MatXf centerWorld = centerCamera->GetMatrix();
             centerWorld.invert();
             const Vect3f tablePivot =
-                menuInput.focused && xrCameraRig_->NeedsTablePivot(
-                    menuInput.hands[1].thumbstick[1],
-                    menuInput.hands[1].thumbstickActive)
+                menuMotionControlsEnabled && menuInput.focused &&
+                    xrCameraRig_->NeedsTablePivot(
+                        menuInput.hands[1].thumbstick[1],
+                        menuInput.hands[1].thumbstickActive)
                     ? getXrScalePivot(*xrCameraRig_, centerWorld, menuViews)
                     : Vect3f::ZERO;
             xrCameraRig_->UpdateControls(
                 menuInput.hands[0].thumbstick,
-                menuInput.focused && menuInput.hands[0].thumbstickActive,
-                menuInput.hands[1].thumbstick[1],
-                menuInput.focused && menuInput.hands[1].thumbstickActive,
+                menuMotionControlsEnabled && menuInput.focused &&
+                    menuInput.hands[0].thumbstickActive,
+                menuMotionControlsEnabled ? menuInput.hands[1].thumbstick[1] : 0.0f,
+                menuMotionControlsEnabled && menuInput.focused &&
+                    menuInput.hands[1].thumbstickActive,
                 deltaSeconds, tablePivot, centerWorld, headPosition,
                 Vect3f::ZERO, 0.0f);
             publishXrListenerView(*xrCameraRig_, centerWorld, menuViews,
@@ -1683,7 +1696,21 @@ void GameShell::Show()
                                 xrEyeCameras_, menuViews);
             const unsigned uiWidth = static_cast<unsigned>(terRenderDevice->GetSizeX());
             const unsigned uiHeight = static_cast<unsigned>(terRenderDevice->GetSizeY());
-            androidXrSetUiPanelFixed();
+            if (bgScene->ready()) {
+                const float unitsPerMeter = xrCameraRig_->UnitsPerMeter();
+                constexpr float menuPanelForwardOffsetMeters = 0.7f;
+                const float menuPanelDistanceMeters =
+                    bgScene->xrMenuPanelDistanceUnits() / unitsPerMeter;
+                float panelDistanceMeters =
+                    menuPanelDistanceMeters - menuPanelForwardOffsetMeters;
+                if (panelDistanceMeters < 0.05f) panelDistanceMeters = 0.05f;
+                const float panelSizeScale =
+                    panelDistanceMeters / menuPanelDistanceMeters;
+                androidXrSetUiPanelFixed(panelDistanceMeters,
+                    bgScene->xrMenuPanelWidthUnits() / unitsPerMeter * panelSizeScale);
+            } else {
+                androidXrSetUiPanelFixed();
+            }
             androidXrPrepareUiPanel(uiWidth, uiHeight);
 
             bool uiPointerVisible = false;

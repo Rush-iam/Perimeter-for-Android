@@ -27,6 +27,8 @@ class BGScene {
 		void prepareXrViews(const XrCameraRig& rig, const AndroidXrEyeView views[2]);
 		void drawXrView(unsigned eye);
 		cCamera* xrCamera(unsigned eye) const { return xrEyes[eye]; }
+		float xrMenuPanelDistanceUnits() const { return menuPanelDistanceUnits; }
+		float xrMenuPanelWidthUnits() const { return menuPanelWidthUnits; }
 #endif
 
 		void reset();
@@ -63,6 +65,8 @@ class BGScene {
 		cCamera* camera = nullptr;
 #if defined(ANDROID_XR)
 		cCamera* xrEyes[2] = {};
+		float menuPanelDistanceUnits = 0.0f;
+		float menuPanelWidthUnits = 0.0f;
 #endif
 
 		cObjectNodeRoot	*bgObj = nullptr;
