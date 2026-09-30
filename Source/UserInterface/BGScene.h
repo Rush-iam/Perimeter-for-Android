@@ -3,6 +3,11 @@
 #ifndef _BGSCENE_H
 #define _BGSCENE_H
 
+#if defined(ANDROID_XR)
+class XrCameraRig;
+struct AndroidXrEyeView;
+#endif
+
 class BGScene {
 
 	public:
@@ -18,6 +23,11 @@ class BGScene {
 		void preDraw();
 		void draw();
 		void postDraw();
+#if defined(ANDROID_XR)
+		void prepareXrViews(const XrCameraRig& rig, const AndroidXrEyeView views[2]);
+		void drawXrView(unsigned eye);
+		cCamera* xrCamera(unsigned eye) const { return xrEyes[eye]; }
+#endif
 
 		void reset();
 
@@ -51,6 +61,9 @@ class BGScene {
 		cUnkLight* light = nullptr;
 		cScene* scene = nullptr;
 		cCamera* camera = nullptr;
+#if defined(ANDROID_XR)
+		cCamera* xrEyes[2] = {};
+#endif
 
 		cObjectNodeRoot	*bgObj = nullptr;
 

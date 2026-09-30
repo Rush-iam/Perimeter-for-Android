@@ -9,6 +9,11 @@
 #include "HistorySceneCamera.h"
 #include "History3D.h"
 
+#if defined(ANDROID_XR)
+class XrCameraRig;
+struct AndroidXrEyeView;
+#endif
+
 class HistoryScene : public Commander {
 	public:
 		HistoryScene();
@@ -20,6 +25,11 @@ class HistoryScene : public Commander {
 		void preDraw();
 		void draw();
 		void postDraw();
+#if defined(ANDROID_XR)
+		void prepareXrViews(const XrCameraRig& rig, const AndroidXrEyeView views[2]);
+		void drawXrView(unsigned eye);
+		cCamera* xrCamera(unsigned eye) const { return xrEyes[eye]; }
+#endif
 
 		void loadProgram(const std::string& programFileName);
 		void start();
@@ -135,6 +145,10 @@ class HistoryScene : public Commander {
 		cUnkLight* lightSky = nullptr;
 		cScene* sceneSky = nullptr;
 		cCamera* cameraSky = nullptr;
+#if defined(ANDROID_XR)
+		cCamera* xrEyes[2] = {};
+		cCamera* xrSkyEyes[2] = {};
+#endif
 
 		cTexture* worldTextures1[WorldSphere::MAX_TYPE] = {};
 		cTexture* worldTextures2[WorldSphere::MAX_TYPE] = {};

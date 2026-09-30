@@ -47,6 +47,7 @@
 #include "AndroidXrBootstrap.h"
 #include "AndroidXrListenerPose.h"
 #include "xr/XrCameraRig.h"
+#include "xr/XrSceneCamera.h"
 #include "xr/XrControllerRay.h"
 #include "xr/XrControllerLaser.h"
 #include "xr/XrUnitRay.h"
@@ -319,26 +320,7 @@ static void prepareXrEyeCameras(XrCameraRig& rig, cScene* scene,
                                 cCamera* centerCamera, cCamera* eyeCameras[2],
                                 const AndroidXrEyeView views[2])
 {
-    for (unsigned eye = 0; eye < 2; ++eye) {
-        if (!eyeCameras[eye]) eyeCameras[eye] = scene->CreateCamera();
-        cCamera* camera = eyeCameras[eye];
-        centerCamera->SetCopy(camera);
-        const auto& view = views[eye];
-        MatXf eyePose = rig.Pose(view.position, view.orientation);
-        eyePose.invert();
-        camera->SetPosition(eyePose * centerCamera->GetMatrix());
-        camera->SetViewSizeOverride(static_cast<float>(view.width),
-                                    static_cast<float>(view.height));
-        camera->SetClip(sRectangle4f(-0.5f, -0.5f, 0.5f, 0.5f));
-        // The game camera's 30-unit near plane can be meters away in XR when
-        // the tabletop is enlarged. Keep the eye's near plane within 5 cm so
-        // the controller beam remains at its real depth close to the viewer.
-        const Vect2f zPlane = camera->GetZPlane();
-        camera->SetZPlaneTemp(Vect2f(std::min(zPlane.x, rig.UnitsPerMeter() * 0.05f),
-                                     zPlane.y));
-        camera->SetAsymmetricPerspective(std::tan(view.fov[0]),
-            std::tan(view.fov[1]), std::tan(view.fov[2]), std::tan(view.fov[3]));
-    }
+    xrPrepareSceneCameras(scene, centerCamera, eyeCameras, rig, views);
     terSetXrUnitInfoViewPosition(
         (eyeCameras[0]->GetPos() + eyeCameras[1]->GetPos()) * 0.5f);
 }
@@ -1766,18 +1748,49 @@ void GameShell::Show()
                 xrUiPressHand_ = -1;
             }
 
+            // A menu selection can enter the mission and dispose menu scenes
+            // while this OpenXR frame is still open.
+            if (GameActive) {
+                androidXrEndFrame(false);
+                return;
+            }
+
             androidXrSetUiPanelVisible(menuInput.focused &&
                 _shellIconManager.interfaceShowFlag());
+            // The menu has its own scenes and cameras. Prepare each scene once,
+            // then render its animated objects from both headset eye poses.
+            HistoryScene* const menuHistoryScene = bwScene->ready() ? bwScene :
+                (historyScene->ready() ? historyScene : nullptr);
+            const bool menuBackdropReady = bgScene->ready();
+            if (menuHistoryScene) {
+                menuHistoryScene->prepareXrViews(*xrCameraRig_, menuViews);
+            } else {
+                terScene->dSetTime(frame_time.delta());
+                terScene->PreDraw(centerCamera);
+                terScene->PrepareViewFamily();
+            }
+            if (menuBackdropReady)
+                bgScene->prepareXrViews(*xrCameraRig_, menuViews);
             float laserDistances[2];
             getXrControllerLaserDistances(menuInput, *xrCameraRig_, centerWorld,
                 uiWidth, uiHeight, laserDistances, false);
             const bool rendered = drawXrEyeViews(terRenderDevice, menuViews, [&](unsigned eye) {
-                terRenderDevice->SetDrawNode(xrEyeCameras_[eye]);
+                cCamera* menuCamera = xrEyeCameras_[eye];
+                if (menuHistoryScene) {
+                    menuHistoryScene->drawXrView(eye);
+                    menuCamera = menuHistoryScene->xrCamera(eye);
+                } else {
+                    terScene->DrawView(xrEyeCameras_[eye]);
+                }
+                if (menuBackdropReady) {
+                    bgScene->drawXrView(eye);
+                    menuCamera = bgScene->xrCamera(eye);
+                }
                 terRenderDevice->SetClipRect(0, 0,
                     static_cast<int>(menuViews[eye].width),
                     static_cast<int>(menuViews[eye].height));
                 for (unsigned hand = 0; hand < 2; ++hand) {
-                    drawXrControllerLaser(terRenderDevice, xrEyeCameras_[eye],
+                    drawXrControllerLaser(terRenderDevice, menuCamera,
                         xrCameraRig_->UnitsPerMeter(), menuViews[eye],
                         menuInput.hands[hand], laserDistances[hand],
                         hand == 0 ? sColor4c(64, 180, 255, 255)
@@ -1790,6 +1803,9 @@ void GameShell::Show()
                 drawXrUiPanel(terRenderDevice, nullptr,
                               uiWidth, uiHeight, uiPointerVisible, uiPointerX, uiPointerY);
             androidXrEndFrame(rendered);
+            if (menuHistoryScene) menuHistoryScene->postDraw();
+            else terScene->PostDraw(centerCamera);
+            if (menuBackdropReady) bgScene->postDraw();
             return;
         }
         androidXrClearListenerView();

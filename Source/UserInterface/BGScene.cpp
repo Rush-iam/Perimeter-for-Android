@@ -5,6 +5,9 @@
 #include "BGScene.h"
 #include "GameShellSq.h"
 #include "SourceUIResolution.h"
+#if defined(ANDROID_XR)
+#include "xr/XrSceneCamera.h"
+#endif
 
 BGScene::BGScene() {
 	scene = 0;
@@ -82,6 +85,9 @@ void BGScene::onResolutionChanged() {
 
 void BGScene::done() {
 	reset();
+#if defined(ANDROID_XR)
+	for (auto& eye : xrEyes) RELEASE(eye);
+#endif
 	RELEASE(light);
 	RELEASE(camera);
 	RELEASE(bgObj);
@@ -219,6 +225,18 @@ void BGScene::draw() {
 void BGScene::postDraw() {
 	scene->PostDraw(camera);
 }
+
+#if defined(ANDROID_XR)
+void BGScene::prepareXrViews(const XrCameraRig& rig, const AndroidXrEyeView views[2]) {
+	xrPrepareSceneCameras(scene, camera, xrEyes, rig, views);
+	scene->PreDraw(camera);
+	scene->PrepareViewFamily();
+}
+
+void BGScene::drawXrView(unsigned eye) {
+	scene->DrawView(xrEyes[eye]);
+}
+#endif
 
 void BGScene::setProgress(float progress) {
 	cObjectNode* node = bgObj->FindObject("group progress");

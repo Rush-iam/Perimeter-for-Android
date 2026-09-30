@@ -8,6 +8,9 @@
 #include "Localization.h"
 #include "Sample.h"
 #include "AudioPlayer.h"
+#if defined(ANDROID_XR)
+#include "xr/XrSceneCamera.h"
+#endif
 
 extern GameShell* gameShell;
 extern cInterfaceRenderDevice* terRenderDevice;
@@ -170,6 +173,10 @@ void HistoryScene::init(cVisGeneric* visGeneric, bool bw, bool addBlendAlphaMode
 
 void HistoryScene::done() {
 	stopAudio();
+#if defined(ANDROID_XR)
+	for (auto& eye : xrEyes) RELEASE(eye);
+	for (auto& eye : xrSkyEyes) RELEASE(eye);
+#endif
 
 	std::map <std::string, World*>::iterator it;
 	std::map <std::string, World*>::iterator end = interpreter->worlds->worlds.end();
@@ -540,6 +547,22 @@ void HistoryScene::postDraw() {
 	sceneSky->PostDraw(cameraSky);
 	scene->PostDraw(historyCamera->getCamera());
 }
+
+#if defined(ANDROID_XR)
+void HistoryScene::prepareXrViews(const XrCameraRig& rig,
+                                  const AndroidXrEyeView views[2]) {
+	xrPrepareSceneCameras(sceneSky, cameraSky, xrSkyEyes, rig, views);
+	xrPrepareSceneCameras(scene, historyCamera->getCamera(), xrEyes, rig, views);
+	preDraw();
+	sceneSky->PrepareViewFamily();
+	scene->PrepareViewFamily();
+}
+
+void HistoryScene::drawXrView(unsigned eye) {
+	sceneSky->DrawView(xrSkyEyes[eye]);
+	scene->DrawView(xrEyes[eye]);
+}
+#endif
 
 void HistoryScene::startAudio(const string& name) {
 	if (!name.empty()) {
