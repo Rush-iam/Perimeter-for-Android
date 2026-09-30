@@ -51,12 +51,14 @@ void cD3DRender::RestoreRenderTarget()
 }
 
 #if defined(ANDROID_XR)
-void cD3DRender::SetFrameRenderTarget(IDirect3DSurface9* color, IDirect3DSurface9* depth)
+void cD3DRender::SetFrameRenderTarget(IDirect3DSurface9* color, IDirect3DSurface9* depth,
+                                     bool alphaLayer)
 {
 	VISASSERT(!color || depth);
 	FlushActiveDrawBuffer();
 	frameColorTarget = color;
 	frameDepthTarget = color ? depth : nullptr;
+	frameAlphaLayerTarget = color && alphaLayer;
 	isOrthographicProjSet = false;
 	// The next draw must bind the new root target even if it reuses the camera.
 	DrawNode = nullptr;

@@ -71,6 +71,7 @@ public:
     // the override; nested render-target restores return here, not to the window.
     IDirect3DSurface9*          frameColorTarget = nullptr;
     IDirect3DSurface9*          frameDepthTarget = nullptr;
+    bool                        frameAlphaLayerTarget = false;
 #endif
     D3DPRESENT_PARAMETERS		d3dpp;
     IDirect3DBaseTexture9*		CurrentTexture[TEXTURE_MAX];
@@ -107,7 +108,8 @@ public:
     void ClearZBuffer() override;
 	int Flush(bool wnd=false) override;
 #if defined(ANDROID_XR)
-	void SetFrameRenderTarget(IDirect3DSurface9* color, IDirect3DSurface9* depth);
+	void SetFrameRenderTarget(IDirect3DSurface9* color, IDirect3DSurface9* depth,
+	                          bool alphaLayer = false);
 #endif
 	int SetGamma(float fGamma,float fStart=0.f,float fFinish=1.f) override;
 

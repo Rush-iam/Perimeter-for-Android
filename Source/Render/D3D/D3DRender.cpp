@@ -1665,6 +1665,33 @@ void cD3DRender::SetBlendState(eBlendMode blend)
 	SetRenderState(D3DRS_ALPHATESTENABLE,blend!=ALPHA_NONE);
 	SetRenderState(D3DRS_ALPHABLENDENABLE,blend>ALPHA_TEST);
 
+#if defined(ANDROID_XR)
+	if (frameAlphaLayerTarget && blend > ALPHA_TEST) {
+		SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, TRUE);
+		SetRenderState(D3DRS_BLENDOPALPHA, D3DBLENDOP_ADD);
+		switch (blend) {
+		case ALPHA_ADDBLENDALPHA:
+		case ALPHA_ADDBLEND:
+		case ALPHA_SUBBLEND:
+			// Preserve panel coverage while changing RGB. OpenXR can then composite
+			// the premultiplied color without making black texels opaque.
+			SetRenderState(D3DRS_SRCBLENDALPHA, D3DBLEND_ZERO);
+			SetRenderState(D3DRS_DESTBLENDALPHA, D3DBLEND_ONE);
+			break;
+		case ALPHA_BLEND:
+			// Store premultiplied source-over alpha for OpenXR composition.
+			SetRenderState(D3DRS_SRCBLENDALPHA, D3DBLEND_ONE);
+			SetRenderState(D3DRS_DESTBLENDALPHA, D3DBLEND_INVSRCALPHA);
+			break;
+		default:
+			SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
+			break;
+		}
+	} else {
+		SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
+	}
+#endif
+
 	switch(blend)
 	{
     case ALPHA_NONE:
