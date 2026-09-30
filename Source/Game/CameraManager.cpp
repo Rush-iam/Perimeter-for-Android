@@ -22,6 +22,20 @@ cCamera* terUnitInfoCamera()
 #endif
 }
 
+#if defined(ANDROID_XR)
+static Vect3f xrUnitInfoViewPosition = Vect3f::ZERO;
+
+void terSetXrUnitInfoViewPosition(const Vect3f& position)
+{
+    xrUnitInfoViewPosition = position;
+}
+
+const Vect3f& terXrUnitInfoViewPosition()
+{
+    return xrUnitInfoViewPosition;
+}
+#endif
+
 int cameraTiltLock = 1;
 
 //Area to consider around the center in pixels

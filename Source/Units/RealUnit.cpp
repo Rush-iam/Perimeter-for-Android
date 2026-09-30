@@ -877,8 +877,8 @@ void terUnitReal::ShowInfo()
 		eyeCamera->GetMatrix().xformPoint(center, eyePosition);
 		if (eyePosition.z <= eyeCamera->GetZPlane().x) return;
 
-		// Face the eye around world up, so head roll does not tilt the bar.
-		const Vect3f toEye = eyeCamera->GetPos() - center;
+		// Both eyes must draw the same world-space bar geometry.
+		const Vect3f toEye = terXrUnitInfoViewPosition() - center;
 		Vect3f right(-toEye.y, toEye.x, 0);
 		if (right.norm2() < 1e-6f) right.set(1, 0, 0);
 		right.normalize();

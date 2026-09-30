@@ -193,6 +193,11 @@ extern terCameraType* terCamera;
 
 // Use the camera that owns the current unit info pass (one camera per eye in XR).
 cCamera* terUnitInfoCamera();
+#if defined(ANDROID_XR)
+// Shared viewpoint for world-space unit overlays rendered in both eyes.
+void terSetXrUnitInfoViewPosition(const Vect3f& position);
+const Vect3f& terXrUnitInfoViewPosition();
+#endif
 
 
 #endif //__CAMERA_MANAGER_H__

@@ -339,6 +339,8 @@ static void prepareXrEyeCameras(XrCameraRig& rig, cScene* scene,
         camera->SetAsymmetricPerspective(std::tan(view.fov[0]),
             std::tan(view.fov[1]), std::tan(view.fov[2]), std::tan(view.fov[3]));
     }
+    terSetXrUnitInfoViewPosition(
+        (eyeCameras[0]->GetPos() + eyeCameras[1]->GetPos()) * 0.5f);
 }
 
 template<class DrawEye>
