@@ -345,12 +345,12 @@ static bool drawXrEyeViews(cInterfaceRenderDevice* renderer,
     return true;
 }
 
-static void drawXrUiPanel(cInterfaceRenderDevice* renderer,
+static bool drawXrUiPanel(cInterfaceRenderDevice* renderer,
                           CShellLogicDispatcher* dispatcher,
                           unsigned width, unsigned height,
                           bool cursorVisible, float cursorX, float cursorY)
 {
-    if (!androidXrBeginUiPanel(renderer, width, height)) return;
+    if (!androidXrBeginUiPanel(renderer, width, height)) return false;
     renderer->Fill(0, 0, 0, 0);
     renderer->BeginScene();
     renderer->SetClipRect(0, 0, static_cast<int>(width), static_cast<int>(height));
@@ -364,6 +364,7 @@ static void drawXrUiPanel(cInterfaceRenderDevice* renderer,
     renderer->EndScene();
     renderer->Flush();
     androidXrEndUiPanel(renderer);
+    return true;
 }
 
 #endif
@@ -1789,8 +1790,14 @@ void GameShell::Show()
                 return;
             }
 
-            androidXrSetUiPanelVisible(menuInput.focused &&
-                _shellIconManager.interfaceShowFlag());
+            const bool menuUiVisible = menuInput.focused &&
+                _shellIconManager.interfaceShowFlag();
+            androidXrSetUiPanelVisible(menuUiVisible);
+            // Draw the UI once before the eye passes so each eye can blend it
+            // directly over its own menu scene at the panel's fixed pose.
+            bool menuPanelReady = !menuUiVisible ||
+                drawXrUiPanel(terRenderDevice, nullptr,
+                              uiWidth, uiHeight, uiPointerVisible, uiPointerX, uiPointerY);
             // The menu has its own scenes and cameras. Prepare each scene once,
             // then render its animated objects from both headset eye poses.
             HistoryScene* const menuHistoryScene = bwScene->ready() ? bwScene :
@@ -1839,12 +1846,10 @@ void GameShell::Show()
                                                          : sColor4c(255, 180, 64, 255));
                 }
                 terRenderDevice->FlushPrimitive3D();
+                if (menuUiVisible && menuPanelReady)
+                    menuPanelReady = androidXrDrawUiPanelInEye(terRenderDevice, eye);
             });
-            if (rendered && menuInput.focused &&
-                _shellIconManager.interfaceShowFlag())
-                drawXrUiPanel(terRenderDevice, nullptr,
-                              uiWidth, uiHeight, uiPointerVisible, uiPointerX, uiPointerY);
-            androidXrEndFrame(rendered);
+            androidXrEndFrame(rendered && menuPanelReady);
             if (menuHistoryScene) menuHistoryScene->postDraw();
             else terScene->PostDraw(centerCamera);
             if (menuBackdropReady) bgScene->postDraw();
