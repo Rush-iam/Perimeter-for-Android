@@ -327,6 +327,22 @@ static unsigned chooseXrPointerHand(const AndroidXrInputFrame& input,
     return 0;
 }
 
+static float xrMenuScrollDelta(const AndroidXrInputFrame& input,
+                               float deltaSeconds)
+{
+    // Match the precise menu wheel rate for both Quest menu paths.
+    constexpr float scrollDeadzone = 0.2f;
+    constexpr float scrollLinesPerSecond = 8.0f;
+    float scrollAxis = 0.0f;
+    for (const auto& hand : input.hands) {
+        const float vertical = hand.thumbstick[1];
+        if (hand.thumbstickActive &&
+            (vertical > scrollDeadzone || vertical < -scrollDeadzone))
+            scrollAxis += vertical;
+    }
+    return scrollAxis * scrollLinesPerSecond * deltaSeconds;
+}
+
 static void prepareXrEyeCameras(XrCameraRig& rig, cScene* scene,
                                 cCamera* centerCamera, cCamera* eyeCameras[2],
                                 const AndroidXrEyeView views[2])
@@ -1259,8 +1275,10 @@ void GameShell::Show()
             // camera angles and interpolation points while controls are locked.
             if (xrInput.recentered && !xrTableCameraLocked)
                 terCamera->recenterOrientation();
+            // A visible mission menu owns the sticks instead of the table camera.
             const bool xrTableControlsEnabled =
-                xrInput.focused && !xrTableCameraLocked;
+                xrInput.focused && !xrTableCameraLocked &&
+                !_shellIconManager.menuVisible();
             MatXf centerWorld = centerCamera->GetMatrix();
             centerWorld.invert();
             const Vect3f tablePivot =
@@ -1375,6 +1393,15 @@ void GameShell::Show()
                     m_ShellDispatcher.OnMouseMove(pointerPosition.x + 0.5f,
                                                   pointerPosition.y + 0.5f);
                     if (endXrFrameIfMissionChanged()) return;
+
+                    if (_shellIconManager.menuVisible()) {
+                        const float scrollDelta =
+                            xrMenuScrollDelta(xrInput, deltaSeconds);
+                        if (scrollDelta != 0.0f) {
+                            _shellIconManager.OnPreciseMouseWheel(scrollDelta);
+                            if (endXrFrameIfMissionChanged()) return;
+                        }
+                    }
                 }
 
                 if (xrUiPressCaptured_) {
@@ -1777,6 +1804,11 @@ void GameShell::Show()
                                                   mousePosition_.y + 0.5f);
                     m_ShellDispatcher.OnMouseMove(mousePosition_.x + 0.5f,
                                                   mousePosition_.y + 0.5f);
+
+                    const float scrollDelta =
+                        xrMenuScrollDelta(menuInput, deltaSeconds);
+                    if (scrollDelta != 0.0f)
+                        _shellIconManager.OnPreciseMouseWheel(scrollDelta);
                 }
 
                 if (xrUiPressCaptured_) {
