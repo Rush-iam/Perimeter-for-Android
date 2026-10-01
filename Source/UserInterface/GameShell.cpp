@@ -275,9 +275,11 @@ static void getXrControllerLaserDistances(const AndroidXrInputFrame& input,
                                           unsigned uiWidth, unsigned uiHeight,
                                           float (&distancesMeters)[2], bool worldVisible,
                                           const Vect3f& skyCenter = Vect3f::ZERO,
-                                          float skyRadius = 0.0f)
+                                          float skyRadius = 0.0f,
+                                          terUnitBase* hoveredUnits[2] = nullptr)
 {
     XrWorldRay worldRays[2];
+    if (hoveredUnits) hoveredUnits[0] = hoveredUnits[1] = nullptr;
     for (unsigned hand = 0; hand < 2; ++hand)
         distancesMeters[hand] = getXrControllerLaserDistance(input.hands[hand],
             rig, centerWorld, uiWidth, uiHeight, worldRays[hand], worldVisible, skyCenter, skyRadius);
@@ -290,8 +292,17 @@ static void getXrControllerLaserDistances(const AndroidXrInputFrame& input,
         for (terUnitBase* unit : player->units()) {
             if (!unit->alive() || !unit->avatar()) continue;
             cObjectNodeRoot* model = unit->avatar()->GetModelPoint();
-            if (model)
+            if (model) {
+                const float previousDistances[2] = {
+                    worldRays[0].distance, worldRays[1].distance};
                 xrIntersectUnitRays(*model, worldRays);
+                if (hoveredUnits) {
+                    for (unsigned hand = 0; hand < 2; ++hand)
+                        if (worldRays[hand].distance < previousDistances[hand])
+                            hoveredUnits[hand] = unit->selectAble() &&
+                                unit->attr()->ID != UNIT_ATTRIBUTE_SQUAD ? unit : nullptr;
+                }
+            }
         }
     }
     for (unsigned hand = 0; hand < 2; ++hand)
@@ -1520,8 +1531,23 @@ void GameShell::Show()
             androidXrSetUiPanelVisible(xrInput.focused && xrPanelVisible_ &&
                 panelTracked && _shellIconManager.interfaceShowFlag());
             float laserDistances[2];
-            getXrControllerLaserDistances(xrInput, *xrCameraRig_, centerWorld,
-                uiWidth, uiHeight, laserDistances, true, skyCenter, skyRadius);
+            terUnitBase* hoveredUnits[2]{};
+            const bool hoverEnabled = xrInput.focused &&
+                _shellIconManager.interfaceShowFlag() &&
+                !BuildingInstallerInited() &&
+                m_ShellDispatcher.m_nEditRegion == editRegionNone &&
+                !isScriptReelEnabled();
+            {
+                MTAutoSingleThread logicLock;
+                getXrControllerLaserDistances(xrInput, *xrCameraRig_, centerWorld,
+                    uiWidth, uiHeight, laserDistances, true, skyCenter, skyRadius,
+                    hoverEnabled ? hoveredUnits : nullptr);
+                // PC hover owns one mark. Prefer the right controller when
+                // both beams hit units, and use the left when it misses.
+                _pUnitHover = hoverEnabled ?
+                    (hoveredUnits[1] ? hoveredUnits[1] : hoveredUnits[0]) : nullptr;
+                if (_pUnitHover()) _pUnitHover->Mark();
+            }
             const bool rendered = drawXrEyeViews(terRenderDevice, xrViews, [&](unsigned eye) {
                 cCamera* camera = xrEyeCameras_[eye];
                 terRenderDevice->SetRenderState(RS_FOGENABLE, false);
@@ -1553,6 +1579,10 @@ void GameShell::Show()
             return;
         }
         androidXrClearListenerView();
+        {
+            MTAutoSingleThread logicLock;
+            _pUnitHover = nullptr;
+        }
         if (!androidXrSessionActive() || !androidXrIsFocused())
             finishXrBrushStroke(true);
         if (androidXrSessionActive() && BuildingInstallerInited() &&
