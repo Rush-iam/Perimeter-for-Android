@@ -159,15 +159,15 @@ static void drawXrPanelCursor(cInterfaceRenderDevice* renderer, float pixelX, fl
     const sColor4c outline(0, 0, 0, 255);
     const sColor4c cursor(255, 235, 64, 255);
     const auto drawArms = [&](const sColor4c& color, float width) {
-        renderer->DrawLine(x - 48, y, x - 12, y, color, width);
-        renderer->DrawLine(x + 12, y, x + 48, y, color, width);
-        renderer->DrawLine(x, y - 48, x, y - 12, color, width);
-        renderer->DrawLine(x, y + 12, x, y + 48, color, width);
+        renderer->DrawLine(x - 10, y, x - 2, y, color, width);
+        renderer->DrawLine(x + 2, y, x + 10, y, color, width);
+        renderer->DrawLine(x, y - 10, x, y - 2, color, width);
+        renderer->DrawLine(x, y + 2, x, y + 10, color, width);
     };
-    drawArms(outline, 5.0f);
-    drawArms(cursor, 3.0f);
-    renderer->DrawRectangle(x - 4, y - 4, 8, 8, outline);
-    renderer->DrawRectangle(x - 2, y - 2, 4, 4, cursor);
+    drawArms(outline, 3.0f);
+    drawArms(cursor, 2.0f);
+    renderer->DrawRectangle(x - 1, y - 1, 2, 2, outline);
+    renderer->DrawRectangle(x, y, 1, 1, cursor);
 }
 
 static void getXrHeadPosition(const AndroidXrEyeView views[2], float position[3])
