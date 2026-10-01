@@ -1281,10 +1281,12 @@ void GameShell::Show()
                 !_shellIconManager.menuVisible();
             MatXf centerWorld = centerCamera->GetMatrix();
             centerWorld.invert();
+            if (xrInput.recentered)
+                xrCameraRig_->ResetTilt(centerWorld, headPosition);
             const Vect3f tablePivot =
                 xrTableControlsEnabled && xrCameraRig_->NeedsTablePivot(
-                    xrInput.hands[1].thumbstick[1],
-                    xrInput.hands[1].thumbstickActive)
+                    xrInput.hands[1].thumbstick,
+                    xrInput.hands[1].thumbstickActive, true)
                     ? getXrScalePivot(*xrCameraRig_, centerWorld, xrViews)
                     : Vect3f::ZERO;
             // CSkySpere scales its mesh to this radius around (H/2, H/2, 0).
@@ -1292,13 +1294,26 @@ void GameShell::Show()
                 (vMap.H_SIZE > 2048 ? 2.2f : 1.8f);
             const Vect3f skyCenter(vMap.H_SIZE * 0.5f,
                                    vMap.H_SIZE * 0.5f, 0.0f);
+            const auto terrainAt = [](const Vect3f& world) {
+                if (world.x < 0.0f || world.x >= vMap.H_SIZE ||
+                    world.y < 0.0f || world.y >= vMap.V_SIZE)
+                    return 0.0f;
+                return vMap.GetAlt(static_cast<int>(world.x),
+                                   static_cast<int>(world.y)) /
+                       static_cast<float>(1 << VX_FRACTION);
+            };
+            const float terrainHeight = terrainAt(
+                xrCameraRig_->HeadWorldPosition(centerWorld, headPosition));
             const Vect3f localPan = xrCameraRig_->UpdateControls(
                 xrInput.hands[0].thumbstick,
                 xrTableControlsEnabled && xrInput.hands[0].thumbstickActive,
-                xrInput.hands[1].thumbstick[1],
+                xrInput.hands[1].thumbstick,
                 xrTableControlsEnabled && xrInput.hands[1].thumbstickActive,
+                true, xrTableControlsEnabled &&
+                    (xrInput.hands[1].pressed & ANDROID_XR_ROTATE),
                 deltaSeconds, tablePivot, centerWorld, headPosition,
-                skyCenter, skyRadius);
+                skyCenter, skyRadius, terrainHeight);
+            bool xrPanMoved = false;
             if (localPan.norm2() > 0.000001f) {
                 Vect3f worldPan = centerWorld.rot() * localPan;
                 // The rig already pans on the terrain plane. Remove conversion
@@ -1306,12 +1321,20 @@ void GameShell::Show()
                 worldPan.z = 0.0f;
                 const Vect3f appliedWorldPan =
                     terCamera->translateXrPan(worldPan);
+                xrPanMoved = appliedWorldPan.norm2() > 0.000001f;
                 MatXf worldToCenter = centerWorld;
                 worldToCenter.invert();
                 xrCameraRig_->RebaseCameraPan(
                     worldToCenter.rot() * appliedWorldPan);
                 centerWorld = centerCamera->GetMatrix();
                 centerWorld.invert();
+            }
+            if (xrTableControlsEnabled) {
+                const float movedTerrainHeight = terrainAt(
+                    xrCameraRig_->HeadWorldPosition(centerWorld, headPosition));
+                xrCameraRig_->UpdateTerrainClearance(movedTerrainHeight, centerWorld,
+                    headPosition, deltaSeconds, skyCenter.z + skyRadius * 0.5f,
+                    xrPanMoved);
             }
             publishXrListenerView(*xrCameraRig_, centerWorld, xrViews,
                                   headPosition, xrInput.focused);
@@ -1443,7 +1466,7 @@ void GameShell::Show()
                     } else if (panelHits[pointerHand].valid) {
                         BuildingInstaller->HideWorldPosition();
                     } else {
-                        if (hand.pressed & ANDROID_XR_ROTATE)
+                        if (xrInput.hands[0].pressed & ANDROID_XR_ROTATE)
                             xrBuildAngle_ += XM_PI / 4.0f;
                         const MatXf worldAim = centerWorld *
                             xrCameraRig_->Pose(hand.aimPosition, hand.aimOrientation);
@@ -1738,17 +1761,18 @@ void GameShell::Show()
             const Vect3f tablePivot =
                 menuMotionControlsEnabled && menuInput.focused &&
                     xrCameraRig_->NeedsTablePivot(
-                        menuInput.hands[1].thumbstick[1],
-                        menuInput.hands[1].thumbstickActive)
+                        menuInput.hands[1].thumbstick,
+                        menuInput.hands[1].thumbstickActive, false)
                     ? getXrScalePivot(*xrCameraRig_, centerWorld, menuViews)
                     : Vect3f::ZERO;
             xrCameraRig_->UpdateControls(
                 menuInput.hands[0].thumbstick,
                 menuMotionControlsEnabled && menuInput.focused &&
                     menuInput.hands[0].thumbstickActive,
-                menuMotionControlsEnabled ? menuInput.hands[1].thumbstick[1] : 0.0f,
+                menuInput.hands[1].thumbstick,
                 menuMotionControlsEnabled && menuInput.focused &&
                     menuInput.hands[1].thumbstickActive,
+                false, false,
                 deltaSeconds, tablePivot, centerWorld, headPosition,
                 Vect3f::ZERO, 0.0f);
             publishXrListenerView(*xrCameraRig_, centerWorld, menuViews,
