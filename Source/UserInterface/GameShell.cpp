@@ -943,6 +943,10 @@ void GameShell::GameClose()
 {
 #if defined(ANDROID_XR)
     xrZeroplastHand_ = -1;
+    xrMenuPanelPoseAnchored_ = false;
+    // The menu mesh uses the default rig scale and origin. Its UI panel is
+    // reanchored separately, so discard mission navigation before returning.
+    if (xrCameraRig_) xrCameraRig_->ResetNavigation();
 #endif
 	getLogicUpdater().reset();
 	stream_interpolator.ClearData();
@@ -1189,9 +1193,6 @@ void GameShell::Show()
 	start_timer_auto(GS_Show,STATISTICS_GROUP_TOTAL);
 	frame_time.next_frame();
 
-#if defined(ANDROID_XR)
-	if (GameActive) xrMenuPanelPoseAnchored_ = false;
-#endif
 	if(GameActive){
 
 		if(!isPaused())
