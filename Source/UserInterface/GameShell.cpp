@@ -1383,6 +1383,14 @@ void GameShell::Show()
                             xrInput.hands[hand], uiWidth, uiHeight,
                             &panelHits[hand].x, &panelHits[hand].y);
                 }
+                bool xrEditToolCanceled = false;
+                if (m_ShellDispatcher.m_nEditRegion != editRegionNone &&
+                    ((xrInput.hands[0].pressed | xrInput.hands[1].pressed) &
+                     ANDROID_XR_CANCEL)) {
+                    xrZeroplastHand_ = -1;
+                    CancelEditWorkarea();
+                    xrEditToolCanceled = true;
+                }
                 const bool zeroplastMode = m_ShellDispatcher.m_nEditRegion == editRegion1 &&
                     CurrentMission.gameType_ != GT_PLAY_RELL;
                 const bool zeroplastControlsEnabled = zeroplastMode &&
@@ -1513,8 +1521,7 @@ void GameShell::Show()
                         if (!input.aimValid) continue;
                         if (xrUiPressCaptured_ && xrUiPressHand_ == static_cast<int>(handIndex))
                             continue;
-                        if (zeroplastMode && (input.pressed & ANDROID_XR_CANCEL)) {
-                            CancelEditWorkarea();
+                        if (xrEditToolCanceled) {
                             continue;
                         }
                         if (panelHits[handIndex].valid) {
@@ -1538,7 +1545,7 @@ void GameShell::Show()
                             universe()->DeselectAll();
                             continue;
                         }
-                        if ((input.pressed & (ANDROID_XR_SELECT | ANDROID_XR_COMMAND)) == 0)
+                        if ((input.pressed & ANDROID_XR_SELECT) == 0)
                             continue;
 
                         const MatXf worldAim = centerWorld *
@@ -1548,12 +1555,15 @@ void GameShell::Show()
                         Vect3f ground;
                         const bool groundHit = terScene->Trace(rayStart, rayFinish,
                                                                &ground, false, false);
-                        if (input.pressed & ANDROID_XR_SELECT)
-                            universe()->select.selectUnitRay(rayStart,
-                                groundHit ? ground : rayFinish, COMMAND_SELECTED_MODE_NONE);
-                        if ((input.pressed & ANDROID_XR_COMMAND) && groundHit)
+                        const Vect3f rayEnd = groundHit ? ground : rayFinish;
+                        if (groundHit && universe()->select.canCommandPointRay(
+                                rayStart, rayEnd)) {
                             universe()->makeCommandSubtle(COMMAND_ID_POINT, ground,
                                                            COMMAND_SELECTED_MODE_NONE);
+                        } else {
+                            universe()->select.selectUnitRay(rayStart, rayEnd,
+                                COMMAND_SELECTED_MODE_NONE);
+                        }
                     }
                 }
             } else {

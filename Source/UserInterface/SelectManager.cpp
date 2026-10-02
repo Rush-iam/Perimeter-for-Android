@@ -159,19 +159,17 @@ void cSelectManager::unitToSelectionLocked(terUnitBase* p, int mode, bool passSq
 }
 
 #if defined(ANDROID_XR)
-bool cSelectManager::selectUnitRay(const Vect3f& start, const Vect3f& finish, int mode) {
-    if (!player) return false;
-    cancelActions();
-    CSELECT_AUTOLOCK();
-    CUNITS_LOCK(player);
+terUnitBase* cSelectManager::nearestOwnUnitOnRayLocked(const Vect3f& start,
+                                                       const Vect3f& finish,
+                                                       bool selectableOnly) {
     const Vect3f segment = finish - start;
     const float lengthSquared = segment.norm2();
-    if (lengthSquared <= FLT_EPS) return false;
+    if (lengthSquared <= FLT_EPS) return nullptr;
     terUnitBase* nearest = nullptr;
     float nearestDistance = lengthSquared;
     for (terUnitBase* unit : player->units()) {
-        if (!unit->alive() || !unit->selectAble() ||
-            unit->attr()->ID == UNIT_ATTRIBUTE_SQUAD) continue;
+        if (!unit->alive() || unit->attr()->ID == UNIT_ATTRIBUTE_SQUAD ||
+            (selectableOnly && !unit->selectAble())) continue;
         const Vect3f delta = unit->position() - start;
         const float projection = delta.x * segment.x + delta.y * segment.y +
                                  delta.z * segment.z;
@@ -188,6 +186,27 @@ bool cSelectManager::selectUnitRay(const Vect3f& start, const Vect3f& finish, in
             nearest = unit;
         }
     }
+    return nearest;
+}
+
+bool cSelectManager::canCommandPointRay(const Vect3f& start, const Vect3f& finish) {
+    if (!player) return false;
+    if ((finish - start).norm2() <= FLT_EPS) return false;
+    CSELECT_AUTOLOCK();
+    if (SelectGroupLists[CURRENT_SELECTION_GROUP_NUMBER].empty()) return false;
+    CUNITS_LOCK(player);
+    terUnitBase* nearest = nearestOwnUnitOnRayLocked(start, finish, false);
+    return !nearest ||
+           findInSelection(nearest) != SelectGroupLists[CURRENT_SELECTION_GROUP_NUMBER].end();
+}
+
+bool cSelectManager::selectUnitRay(const Vect3f& start, const Vect3f& finish, int mode) {
+    if (!player) return false;
+    cancelActions();
+    CSELECT_AUTOLOCK();
+    CUNITS_LOCK(player);
+    if ((finish - start).norm2() <= FLT_EPS) return false;
+    terUnitBase* nearest = nearestOwnUnitOnRayLocked(start, finish, true);
     if (nearest) {
         unitToSelectionLocked(nearest, mode, false);
         return true;

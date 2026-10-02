@@ -16,6 +16,7 @@ public:
 #if defined(ANDROID_XR)
 	// Resolve and select under the existing selection -> player-units lock order.
 	bool selectUnitRay(const Vect3f& start, const Vect3f& finish, int mode);
+	bool canCommandPointRay(const Vect3f& start, const Vect3f& finish);
 #endif
 	void grade(terUnitBase* from, terUnitBase* to);
 	void allLikeUnitToSelection(terUnitBase* p);
@@ -55,6 +56,11 @@ public:
 	};
 
 protected:
+#if defined(ANDROID_XR)
+	// Caller holds the selection and player-units locks.
+	terUnitBase* nearestOwnUnitOnRayLocked(const Vect3f& start, const Vect3f& finish,
+	                                      bool selectableOnly);
+#endif
     enum SelectionPriority {
         CORES = 1,
         GUNS,
