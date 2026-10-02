@@ -1283,10 +1283,15 @@ void GameShell::Show()
             centerWorld.invert();
             if (xrInput.recentered)
                 xrCameraRig_->ResetTilt(centerWorld, headPosition);
+            const bool gripControlsEnabled =
+                xrTableControlsEnabled && !xrInput.recentered;
+            const bool twoGripHeld = XrCameraRig::BothGripsHeld(
+                xrInput.hands, gripControlsEnabled);
             const Vect3f tablePivot =
-                xrTableControlsEnabled && xrCameraRig_->NeedsTablePivot(
-                    xrInput.hands[1].thumbstick,
-                    xrInput.hands[1].thumbstickActive, true)
+                xrTableControlsEnabled &&
+                    (twoGripHeld || xrCameraRig_->NeedsTablePivot(
+                        xrInput.hands[1].thumbstick,
+                        xrInput.hands[1].thumbstickActive, true))
                     ? getXrScalePivot(*xrCameraRig_, centerWorld, xrViews)
                     : Vect3f::ZERO;
             // CSkySpere scales its mesh to this radius around (H/2, H/2, 0).
@@ -1314,7 +1319,8 @@ void GameShell::Show()
                 deltaSeconds, tablePivot, centerWorld, headPosition,
                 skyCenter, skyRadius, terrainHeight);
             const Vect3f gripDrag = xrCameraRig_->UpdateGripDrag(
-                xrInput.hands, xrTableControlsEnabled && !xrInput.recentered);
+                xrInput.hands, gripControlsEnabled,
+                tablePivot, centerWorld, headPosition);
             localPan += gripDrag;
             bool xrPanMoved = false;
             Vect3f worldPan = centerWorld.rot() * localPan;
