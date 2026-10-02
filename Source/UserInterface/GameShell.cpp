@@ -1288,10 +1288,7 @@ void GameShell::Show()
             const bool twoGripHeld = XrCameraRig::BothGripsHeld(
                 xrInput.hands, gripControlsEnabled);
             const Vect3f tablePivot =
-                xrTableControlsEnabled &&
-                    (twoGripHeld || xrCameraRig_->NeedsTablePivot(
-                        xrInput.hands[1].thumbstick,
-                        xrInput.hands[1].thumbstickActive, true))
+                twoGripHeld
                     ? getXrScalePivot(*xrCameraRig_, centerWorld, xrViews)
                     : Vect3f::ZERO;
             // CSkySpere scales its mesh to this radius around (H/2, H/2, 0).
@@ -1314,10 +1311,8 @@ void GameShell::Show()
                 xrTableControlsEnabled && xrInput.hands[0].thumbstickActive,
                 xrInput.hands[1].thumbstick,
                 xrTableControlsEnabled && xrInput.hands[1].thumbstickActive,
-                true, xrTableControlsEnabled &&
-                    (xrInput.hands[1].pressed & ANDROID_XR_ROTATE),
-                deltaSeconds, tablePivot, centerWorld, headPosition,
-                skyCenter, skyRadius, terrainHeight);
+                true, deltaSeconds, centerWorld, headPosition,
+                skyCenter, skyRadius);
             const Vect3f gripDrag = xrCameraRig_->UpdateGripDrag(
                 xrInput.hands, gripControlsEnabled,
                 tablePivot, centerWorld, headPosition);
@@ -1483,7 +1478,7 @@ void GameShell::Show()
                     } else if (panelHits[pointerHand].valid) {
                         BuildingInstaller->HideWorldPosition();
                     } else {
-                        if (xrInput.hands[0].pressed & ANDROID_XR_ROTATE)
+                        if (hand.pressed & ANDROID_XR_ROTATE)
                             xrBuildAngle_ += XM_PI / 4.0f;
                         const MatXf worldAim = centerWorld *
                             xrCameraRig_->Pose(hand.aimPosition, hand.aimOrientation);
@@ -1778,13 +1773,6 @@ void GameShell::Show()
             const float deltaSeconds = frame_time.delta() * 0.001f;
             MatXf centerWorld = centerCamera->GetMatrix();
             centerWorld.invert();
-            const Vect3f tablePivot =
-                menuMotionControlsEnabled && menuInput.focused &&
-                    xrCameraRig_->NeedsTablePivot(
-                        menuInput.hands[1].thumbstick,
-                        menuInput.hands[1].thumbstickActive, false)
-                    ? getXrScalePivot(*xrCameraRig_, centerWorld, menuViews)
-                    : Vect3f::ZERO;
             xrCameraRig_->UpdateControls(
                 menuInput.hands[0].thumbstick,
                 menuMotionControlsEnabled && menuInput.focused &&
@@ -1792,8 +1780,7 @@ void GameShell::Show()
                 menuInput.hands[1].thumbstick,
                 menuMotionControlsEnabled && menuInput.focused &&
                     menuInput.hands[1].thumbstickActive,
-                false, false,
-                deltaSeconds, tablePivot, centerWorld, headPosition,
+                false, deltaSeconds, centerWorld, headPosition,
                 Vect3f::ZERO, 0.0f);
             publishXrListenerView(*xrCameraRig_, centerWorld, menuViews,
                                   headPosition, menuInput.focused);
