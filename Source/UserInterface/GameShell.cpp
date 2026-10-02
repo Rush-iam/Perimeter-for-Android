@@ -1304,7 +1304,7 @@ void GameShell::Show()
             };
             const float terrainHeight = terrainAt(
                 xrCameraRig_->HeadWorldPosition(centerWorld, headPosition));
-            const Vect3f localPan = xrCameraRig_->UpdateControls(
+            Vect3f localPan = xrCameraRig_->UpdateControls(
                 xrInput.hands[0].thumbstick,
                 xrTableControlsEnabled && xrInput.hands[0].thumbstickActive,
                 xrInput.hands[1].thumbstick,
@@ -1313,12 +1313,15 @@ void GameShell::Show()
                     (xrInput.hands[1].pressed & ANDROID_XR_ROTATE),
                 deltaSeconds, tablePivot, centerWorld, headPosition,
                 skyCenter, skyRadius, terrainHeight);
+            const Vect3f gripDrag = xrCameraRig_->UpdateGripDrag(
+                xrInput.hands, xrTableControlsEnabled && !xrInput.recentered);
+            localPan += gripDrag;
             bool xrPanMoved = false;
-            if (localPan.norm2() > 0.000001f) {
-                Vect3f worldPan = centerWorld.rot() * localPan;
-                // The rig already pans on the terrain plane. Remove conversion
-                // roundoff before rebasing into the game camera.
-                worldPan.z = 0.0f;
+            Vect3f worldPan = centerWorld.rot() * localPan;
+            // Keep vertical grip movement in the rig. Only terrain-plane
+            // movement is rebased into the game camera.
+            worldPan.z = 0.0f;
+            if (worldPan.norm2() > 0.000001f) {
                 const Vect3f appliedWorldPan =
                     terCamera->translateXrPan(worldPan);
                 xrPanMoved = appliedWorldPan.norm2() > 0.000001f;
@@ -1334,7 +1337,7 @@ void GameShell::Show()
                     xrCameraRig_->HeadWorldPosition(centerWorld, headPosition));
                 xrCameraRig_->UpdateTerrainClearance(movedTerrainHeight, centerWorld,
                     headPosition, deltaSeconds, skyCenter.z + skyRadius * 0.5f,
-                    xrPanMoved);
+                    xrPanMoved || gripDrag.norm2() > 0.000001f);
             }
             publishXrListenerView(*xrCameraRig_, centerWorld, xrViews,
                                   headPosition, xrInput.focused);
@@ -1639,6 +1642,7 @@ void GameShell::Show()
             terScene->PostDraw(centerCamera);
             return;
         }
+        if (xrCameraRig_) xrCameraRig_->ResetGripDrag();
         androidXrClearListenerView();
         {
             MTAutoSingleThread logicLock;
