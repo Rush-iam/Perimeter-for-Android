@@ -1,6 +1,9 @@
 #include "StdAfxRD.h"
 #include "Font.h"
 #include "FileImage.h"
+#if defined(ANDROID_XR)
+#include "AndroidXrBootstrap.h"
+#endif
 
 #include <fcntl.h>
 #include <sys/types.h>
@@ -155,6 +158,18 @@ bool cFontInternal::CreateImage(const char* filename, const char* fontname, int 
 
 	float mul=height/float(real_height);
 	int yborder=max((int) xm::round(2 * mul), 2);
+#if defined(ANDROID_XR)
+    // Round in logical pixels before increasing atlas density, so glyph
+    // advances and padding match the original low-density font exactly.
+    yborder = max((int) xm::round(2 * mul / rasterScale), 2) * rasterScale;
+#endif
+    const auto glyphWidth = [&](int width) {
+#if defined(ANDROID_XR)
+        return (int) xm::round(width * mul / rasterScale + 2) * rasterScale;
+#else
+        return (int) xm::round(width * mul + 2);
+#endif
+    };
 	int sz;
 	for(sz=0;sz<sizes_size;sz++)
 	{
@@ -164,7 +179,7 @@ bool cFontInternal::CreateImage(const char* filename, const char* fontname, int 
 		for(i=char_min;i<char_max;i++)
 		{
 
-			int dx=(int) xm::round(chars[i].width * mul + 2);
+			int dx=glyphWidth(chars[i].width);
 			if(x+dx>size.x)
 			{
 				y+=(height+yborder);
@@ -198,7 +213,7 @@ bool cFontInternal::CreateImage(const char* filename, const char* fontname, int 
 	{
 
 		int w=chars[i].width;
-		int dx=(int) xm::round(w * mul + 2);
+		int dx=glyphWidth(w);
 		if(x+dx>size.x)
 		{
 			y+=(height+yborder);
@@ -364,6 +379,12 @@ bool cFontInternal::Create(const std::string& root_dir, const std::string& local
     xassert(0<=ScreenY);
 
 	int height=(int) xm::round((float) (h * ScreenY) / 768.0f);
+#if defined(ANDROID_XR)
+    // Retain source bitmap detail before rendering into the denser menu panel.
+    // Share the atlas with gameplay; cFont compensates its logical metrics.
+    rasterScale = AndroidXrUiFontRasterScale;
+    height *= rasterScale;
+#endif
 	statement_height=h;
     locale=locale_;
     font_name=string_to_lower(fname.c_str());
@@ -372,6 +393,10 @@ bool cFontInternal::Create(const std::string& root_dir, const std::string& local
     
     //Create texture name for caching
     std::string texture_name = font_path + font_name + "-" + std::to_string(height);
+#if defined(ANDROID_XR)
+    // Dense padding/metrics differ from legacy caches of the same pixel height.
+    texture_name += "-xr" + std::to_string(rasterScale) + "x";
+#endif
     texture_name = string_to_lower(texture_name.c_str());
     str_replace_slash(texture_name.data());
     

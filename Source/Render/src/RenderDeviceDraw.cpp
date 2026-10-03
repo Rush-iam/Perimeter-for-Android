@@ -148,8 +148,8 @@ void cInterfaceRenderDevice::OutText(int x,int y,const char *string,const sColor
 
     float xOfs;
     float yOfs = static_cast<float>(y);
-    float xSize = CurrentFont->GetScale().x*static_cast<float>(cf->GetTexture()->GetWidth());
-    float ySize = CurrentFont->GetScale().y*cf->FontHeight*static_cast<float>(cf->GetTexture()->GetHeight());
+    float xSize = CurrentFont->GetTextureScale().x*static_cast<float>(cf->GetTexture()->GetWidth());
+    float ySize = CurrentFont->GetTextureScale().y*cf->FontHeight*static_cast<float>(cf->GetTexture()->GetHeight());
     float v_add = static_cast<float>(cf->FontHeight + 1.0 / static_cast<double>(cf->GetTexture()->GetHeight()));
 
     UseOrthographicProjection();
@@ -212,8 +212,8 @@ void cInterfaceRenderDevice::OutText(int x,int y,const char *string,const sColor
 
     float xOfs;
     float yOfs = static_cast<float>(y);
-    float xSize = CurrentFont->GetScale().x*static_cast<float>(cf->GetTexture()->GetWidth());
-    float ySize = CurrentFont->GetScale().y*cf->FontHeight*static_cast<float>(cf->GetTexture()->GetHeight());
+    float xSize = CurrentFont->GetTextureScale().x*static_cast<float>(cf->GetTexture()->GetWidth());
+    float ySize = CurrentFont->GetTextureScale().y*cf->FontHeight*static_cast<float>(cf->GetTexture()->GetHeight());
     float v_add = static_cast<float>(cf->FontHeight + 1.0 / static_cast<double>(cf->GetTexture()->GetHeight()));
 
     UseOrthographicProjection();

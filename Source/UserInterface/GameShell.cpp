@@ -785,9 +785,10 @@ static void drawXrLetterbox(cInterfaceRenderDevice* renderer,
 static bool drawXrUiPanel(cInterfaceRenderDevice* renderer,
                           CShellLogicDispatcher* dispatcher,
                           unsigned width, unsigned height,
-                          bool cursorVisible, float cursorX, float cursorY)
+                          bool cursorVisible, float cursorX, float cursorY,
+                          AndroidXrUiPanelKind kind = AndroidXrUiPanelKind::Gameplay)
 {
-    if (!androidXrBeginUiPanel(renderer, width, height)) return false;
+    if (!androidXrBeginUiPanel(renderer, width, height, kind)) return false;
     renderer->Fill(0, 0, 0, 0);
     renderer->BeginScene();
     renderer->SetClipRect(0, 0, static_cast<int>(width), static_cast<int>(height));
@@ -2522,7 +2523,7 @@ void GameShell::Show()
             } else {
                 androidXrSetUiPanelFixed();
             }
-            androidXrPrepareUiPanel(uiWidth, uiHeight);
+            androidXrPrepareUiPanel(uiWidth, uiHeight, AndroidXrUiPanelKind::Menu);
 
             bool uiPointerVisible = false;
             float uiPointerX = 0.0f;
@@ -2610,7 +2611,8 @@ void GameShell::Show()
             // directly over its own menu scene at the panel's fixed pose.
             bool menuPanelReady = !menuUiVisible ||
                 drawXrUiPanel(terRenderDevice, nullptr,
-                              uiWidth, uiHeight, uiPointerVisible, uiPointerX, uiPointerY);
+                              uiWidth, uiHeight, uiPointerVisible, uiPointerX, uiPointerY,
+                              AndroidXrUiPanelKind::Menu);
             // The menu has its own scenes and cameras. Prepare each scene once,
             // then render its animated objects from both headset eye poses.
             HistoryScene* const menuHistoryScene = bwScene->ready() ? bwScene :

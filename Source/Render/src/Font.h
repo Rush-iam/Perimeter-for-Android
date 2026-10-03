@@ -12,8 +12,15 @@ public:
 	
 	virtual cTexture* GetTexture()		{return pTexture;};
 	virtual float GetHeight()			{
-        return FontHeight*(GetTexture() ? GetTexture()->GetHeight() : 1);
+        float height = FontHeight*(GetTexture() ? GetTexture()->GetHeight() : 1);
+#if defined(ANDROID_XR)
+        height /= rasterScale;
+#endif
+        return height;
     }
+#if defined(ANDROID_XR)
+    unsigned GetRasterScale() const { return rasterScale; }
+#endif
 	bool Reload(const char* root_dir);
 
 	std::vector<Vect3f>		Font; // x,y - position, z - font width
@@ -24,6 +31,9 @@ public:
 	int GetStatementHeight() const {return statement_height;};
 protected:
 	int statement_height;
+#if defined(ANDROID_XR)
+    unsigned rasterScale = 1;
+#endif
 	cTexture* pTexture;
 	friend class cFont;
 	
@@ -44,6 +54,15 @@ public:
 
 	virtual Vect2f GetScale() const     { return Scale; }
 	virtual void SetScale(const Vect2f& scale){Scale=scale; }
+    Vect2f GetTextureScale() const {
+        const Vect2f scale = GetScale();
+#if defined(ANDROID_XR)
+        // Texture density is independent of the UI's logical font scale.
+        return Vect2f(scale.x / pFont->GetRasterScale(), scale.y / pFont->GetRasterScale());
+#else
+        return scale;
+#endif
+    }
 
 	inline cFontInternal* GetInternal(){return pFont;}
 protected:

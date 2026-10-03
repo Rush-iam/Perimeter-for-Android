@@ -705,6 +705,9 @@ int cD3DRender::SetClipRect(int xmin,int ymin,int xmax,int ymax)
 {
 	if (lpD3DDevice == nullptr) return -1;
     if (xScrMin==xmin && yScrMin==ymin && xScrMax==xmax && yScrMax==ymax) {
+#if defined(ANDROID_XR)
+        if (!frameClipRectDirty)
+#endif
         return 0;
     }
     FlushActiveDrawBuffer();
@@ -715,6 +718,21 @@ int cD3DRender::SetClipRect(int xmin,int ymin,int xmax,int ymax)
 	yScrMax=ymax;
 
     sRect vp = { xScrMin, yScrMin, xScrMax, yScrMax };
+#if defined(ANDROID_XR)
+    if (frameAlphaLayerTarget && frameColorTarget) {
+        // Keep GetClipRect in logical coordinates for text/layout, but apply
+        // scissoring in the higher-density UI texture's pixel coordinates.
+        D3DSURFACE_DESC targetDesc{};
+        RDCALL(frameColorTarget->GetDesc(&targetDesc));
+        const double scaleX = static_cast<double>(targetDesc.Width) / ScreenSize.x;
+        const double scaleY = static_cast<double>(targetDesc.Height) / ScreenSize.y;
+        vp = {static_cast<int>(floor(xScrMin * scaleX)),
+              static_cast<int>(floor(yScrMin * scaleY)),
+              static_cast<int>(ceil(xScrMax * scaleX)),
+              static_cast<int>(ceil(yScrMax * scaleY))};
+    }
+    frameClipRectDirty = false;
+#endif
 	RDCALL(lpD3DDevice->SetScissorRect(reinterpret_cast<RECT*>(&vp)));
 	return 0;
 }
@@ -1033,6 +1051,14 @@ int cD3DRender::BeginScene()
             static_cast<DWORD>(ScreenSize.y),
             0.0f, 1.0f
     };
+#if defined(ANDROID_XR)
+    if (frameAlphaLayerTarget && frameColorTarget) {
+        D3DSURFACE_DESC targetDesc{};
+        RDCALL(frameColorTarget->GetDesc(&targetDesc));
+        vp.Width = targetDesc.Width;
+        vp.Height = targetDesc.Height;
+    }
+#endif
     RDCALL(lpD3DDevice->SetViewport(&vp));
     
 	return hr;
@@ -1953,7 +1979,7 @@ void cD3DRender::UseOrthographicProjection() {
     RDCALL(lpD3DDevice->SetTransform(D3DTS_VIEW, reinterpret_cast<const D3DMATRIX*>(&Mat4f::ID)));
 #if defined(ANDROID_XR)
     Mat4f projection = orthoVP;
-    if (frameColorTarget) {
+    if (frameColorTarget && !frameAlphaLayerTarget) {
         D3DSURFACE_DESC targetDesc{};
         RDCALL(frameColorTarget->GetDesc(&targetDesc));
         SetOrthographic(projection, static_cast<int>(targetDesc.Width),
@@ -1967,7 +1993,13 @@ void cD3DRender::UseOrthographicProjection() {
     D3DVIEWPORT9 vp{};
 #if defined(ANDROID_XR)
     if (frameColorTarget) {
-        RDCALL(lpD3DDevice->GetViewport(&vp));
+        if (frameAlphaLayerTarget) {
+            D3DSURFACE_DESC targetDesc{};
+            RDCALL(frameColorTarget->GetDesc(&targetDesc));
+            vp = {0, 0, targetDesc.Width, targetDesc.Height, 0.0f, 1.0f};
+        } else {
+            RDCALL(lpD3DDevice->GetViewport(&vp));
+        }
     } else
 #endif
     {

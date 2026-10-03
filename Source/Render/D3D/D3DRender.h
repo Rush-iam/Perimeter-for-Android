@@ -72,6 +72,7 @@ public:
     IDirect3DSurface9*          frameColorTarget = nullptr;
     IDirect3DSurface9*          frameDepthTarget = nullptr;
     bool                        frameAlphaLayerTarget = false;
+    bool                        frameClipRectDirty = false;
 #endif
     D3DPRESENT_PARAMETERS		d3dpp;
     IDirect3DBaseTexture9*		CurrentTexture[TEXTURE_MAX];

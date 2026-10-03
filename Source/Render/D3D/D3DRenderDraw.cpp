@@ -59,6 +59,8 @@ void cD3DRender::SetFrameRenderTarget(IDirect3DSurface9* color, IDirect3DSurface
 	frameColorTarget = color;
 	frameDepthTarget = color ? depth : nullptr;
 	frameAlphaLayerTarget = color && alphaLayer;
+    // The same logical clip can map to different pixels on the next XR target.
+    frameClipRectDirty = true;
 	isOrthographicProjSet = false;
 	// The next draw must bind the new root target even if it reuses the camera.
 	DrawNode = nullptr;
@@ -257,7 +259,11 @@ void cD3DRender::OutText(int x,int y,const char *string,const sColor4f& color,in
 	SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
 	SetTextureStageState( 2, D3DTSS_COLOROP, D3DTOP_DISABLE );
 
-	if(CurrentFont->GetScale().x>1.01f || CurrentFont->GetScale().y>1.01f)
+	if(CurrentFont->GetScale().x>1.01f || CurrentFont->GetScale().y>1.01f
+#if defined(ANDROID_XR)
+       || CurrentFont->GetInternal()->GetRasterScale() > 1
+#endif
+    )
 		SetRenderState(RS_BILINEAR,1);
 	else
 		SetRenderState(RS_BILINEAR,0);
@@ -276,7 +282,11 @@ void cD3DRender::OutText(int x,int y,const char *string,const sColor4f& color,in
     SetTextureStageState(0,D3DTSS_TEXCOORDINDEX,0);
     SetTextureStageState(1,D3DTSS_TEXCOORDINDEX,1);
 
-    SetRenderState(RS_BILINEAR,0);
+    SetRenderState(RS_BILINEAR,
+#if defined(ANDROID_XR)
+        CurrentFont->GetInternal()->GetRasterScale() > 1 ? 1 :
+#endif
+        0);
 
     sColor4c lerp(255*lerp_factor,255*lerp_factor,255*lerp_factor,255*(1-lerp_factor));
     SetTextureStageState(0,D3DTSS_COLOROP,D3DTOP_MODULATECOLOR_ADDALPHA);
