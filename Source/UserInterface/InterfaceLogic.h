@@ -104,8 +104,8 @@ struct CShellLogicDispatcher
 
 	void RegionEndEdit();
 #if defined(ANDROID_XR)
-    Vect3f UpdateXrZeroplastBrush(const Vect3f& worldPosition, bool paint,
-                                float& brushRadius);
+    Vect3f UpdateXrWorkarea(const Vect3f& worldPosition, bool triggerPressed,
+                           bool triggerHeld, float& brushRadius);
 #endif
 	void updateSmallCamera();
 

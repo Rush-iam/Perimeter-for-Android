@@ -853,10 +853,10 @@ void CShellCursorManager::draw()
 #if defined(ANDROID_XR)
 void CShellCursorManager::drawXrBrush(cCamera* camera, const Vect3f& position,
                                      float radius, const Vect3f& right,
-                                     const Vect3f& up, bool erase, float phase,
+                                     const Vect3f& up, int cursorId, float phase,
                                      bool readoutOnRight, const Vect3f& viewerPosition)
 {
-    const auto& cursor = m_cursors[erase ? workarea_out : workarea_in];
+    const auto& cursor = m_cursors[cursorId];
     // Engine camera space has opposite handedness to the reference billboard
     // axes. Increasing texture U must run toward the viewer's screen right.
     const Vect3f artworkRight = right * -1.0f;

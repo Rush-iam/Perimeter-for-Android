@@ -1368,7 +1368,7 @@ void GameShell::GameStart(const MissionDescription& mission)
 void GameShell::GameClose()
 {
 #if defined(ANDROID_XR)
-    xrZeroplastHand_ = -1;
+    xrWorkareaPressHand_ = -1;
     xrMenuPanelPoseAnchored_ = false;
     // The menu mesh uses the default rig scale and origin. Its UI panel is
     // reanchored separately, so discard mission navigation before returning.
@@ -1645,13 +1645,21 @@ void GameShell::Show()
 #if defined(ANDROID_XR)
         AndroidXrEyeView xrViews[2]{};
         AndroidXrInputFrame xrInput{};
-        const auto finishXrBrushStroke = [&](bool cancelTool = false) {
-            if (xrZeroplastHand_ < 0) return;
-            xrZeroplastHand_ = -1;
+        const auto finishXrWorkareaPress = [&](bool cancelTool = false) {
+            if (xrWorkareaPressHand_ < 0) {
+                // Abyss keeps a pending segment between clicks, without a held press.
+                if (cancelTool && m_ShellDispatcher.m_nEditRegion != editRegionNone)
+                    CancelEditWorkarea();
+                return;
+            }
+            xrWorkareaPressHand_ = -1;
             if (cancelTool) {
                 CancelEditWorkarea();
             } else {
                 MetaRegionLock lock(m_ShellDispatcher.regionMetaDispatcher());
+                if (m_ShellDispatcher.m_nEditRegion == editRegion2 &&
+                    !m_ShellDispatcher.m_bTolzerFirstClick)
+                    m_ShellDispatcher.regionMetaDispatcher()->endLine();
                 m_ShellDispatcher.RegionEndEdit();
             }
         };
@@ -1837,35 +1845,37 @@ void GameShell::Show()
                      ANDROID_XR_CANCEL) != 0;
                 if (m_ShellDispatcher.m_nEditRegion != editRegionNone &&
                     xrCancelPressed) {
-                    xrZeroplastHand_ = -1;
+                    xrWorkareaPressHand_ = -1;
                     CancelEditWorkarea();
                     xrEditToolCanceled = true;
                 }
-                const bool zeroplastMode = m_ShellDispatcher.m_nEditRegion == editRegion1 &&
+                const bool workareaMode =
+                    (m_ShellDispatcher.m_nEditRegion == editRegion1 ||
+                     m_ShellDispatcher.m_nEditRegion == editRegion2) &&
                     CurrentMission.gameType_ != GT_PLAY_RELL;
-                const bool zeroplastControlsEnabled = zeroplastMode &&
+                const bool workareaControlsEnabled = workareaMode &&
                     inGameInterfaceActive && !xrTableCameraLocked && !isPaused();
                 // A tool switch already submits through CancelEditWorkarea.
-                if (!zeroplastMode) {
-                    xrZeroplastHand_ = -1;
+                if (!workareaMode) {
+                    xrWorkareaPressHand_ = -1;
                     if (CurrentMission.gameType_ == GT_PLAY_RELL ||
-                        m_ShellDispatcher.m_nEditRegion != editRegion1)
-                        xrZeroplastToolHand_ = 1;
-                } else if (!zeroplastControlsEnabled || xrInput.recentered) {
-                    finishXrBrushStroke();
+                        m_ShellDispatcher.m_nEditRegion == editRegionNone)
+                        xrWorkareaToolHand_ = 1;
+                } else if (!workareaControlsEnabled || xrInput.recentered) {
+                    finishXrWorkareaPress();
                 }
                 unsigned pointerHand = chooseXrPointerHand(xrInput, panelHits,
                     xrUiPressCaptured_ ? xrUiPressHand_ : -1);
-                if (xrZeroplastHand_ >= 0)
-                    pointerHand = static_cast<unsigned>(xrZeroplastHand_);
+                if (xrWorkareaPressHand_ >= 0)
+                    pointerHand = static_cast<unsigned>(xrWorkareaPressHand_);
                 else if (BuildingInstallerInited())
                     pointerHand = xrBuildHand_;
-                else if (zeroplastMode && !xrUiPressCaptured_)
-                    pointerHand = xrZeroplastToolHand_;
+                else if (workareaMode && !xrUiPressCaptured_)
+                    pointerHand = xrWorkareaToolHand_;
                 Vect2f pointerPosition = mousePosition_;
                 const bool pointerOverUi = panelHits[pointerHand].valid &&
                     inGameInterfaceActive && !BuildingInstallerInited() &&
-                    xrZeroplastHand_ < 0;
+                    xrWorkareaPressHand_ < 0;
                 uiPointerVisible = pointerOverUi;
                 if (pointerOverUi) {
                     uiPointerX = panelHits[pointerHand].x;
@@ -1914,9 +1924,9 @@ void GameShell::Show()
                         }
                         if (BuildingInstallerInited())
                             xrBuildHand_ = static_cast<unsigned>(xrUiPressHand_);
-                        if (m_ShellDispatcher.m_nEditRegion == editRegion1 &&
+                        if (m_ShellDispatcher.m_nEditRegion != editRegionNone &&
                             CurrentMission.gameType_ != GT_PLAY_RELL)
-                            xrZeroplastToolHand_ = static_cast<unsigned>(xrUiPressHand_);
+                            xrWorkareaToolHand_ = static_cast<unsigned>(xrUiPressHand_);
                         _shellIconManager.lButtonReset();
                         xrUiPressCaptured_ = false;
                         xrUiPressHand_ = -1;
@@ -1927,7 +1937,7 @@ void GameShell::Show()
                     }
                 }
 
-                if (BuildingInstallerInited() || zeroplastMode ||
+                if (BuildingInstallerInited() ||
                     m_ShellDispatcher.m_nEditRegion != editRegionNone ||
                     xrUiPressCaptured_ || !inGameInterfaceActive)
                     xrAreaSelectHand_ = -1;
@@ -1960,18 +1970,17 @@ void GameShell::Show()
                             BuildingInstaller->HideWorldPosition();
                         }
                     }
-                } else if (zeroplastControlsEnabled && !xrUiPressCaptured_ &&
-                           (xrZeroplastHand_ >= 0 || !panelHits[pointerHand].valid)) {
+                } else if (workareaControlsEnabled && !xrUiPressCaptured_ &&
+                           (xrWorkareaPressHand_ >= 0 || !panelHits[pointerHand].valid)) {
                     const auto& hand = xrInput.hands[pointerHand];
                     if (!hand.aimValid) {
-                        xrZeroplastHand_ = -1;
-                        finishXrBrushStroke();
+                        finishXrWorkareaPress();
                     } else if (hand.pressed & ANDROID_XR_CANCEL) {
-                        xrZeroplastHand_ = -1;
+                        xrWorkareaPressHand_ = -1;
                         CancelEditWorkarea();
                     } else {
                         if (hand.released & ANDROID_XR_SELECT)
-                            finishXrBrushStroke();
+                            finishXrWorkareaPress();
                         const MatXf worldAim = centerWorld *
                             xrCameraRig_->Pose(hand.aimPosition, hand.aimOrientation);
                         Vect3f ground;
@@ -1980,10 +1989,12 @@ void GameShell::Show()
                                             worldAim * Vect3f(0, 0, 5000),
                                             &ground, false, false)) {
                             if (hand.pressed & ANDROID_XR_SELECT)
-                                xrZeroplastHand_ = static_cast<int>(pointerHand);
+                                xrWorkareaPressHand_ = static_cast<int>(pointerHand);
                             xrBrushPosition =
-                                m_ShellDispatcher.UpdateXrZeroplastBrush(
-                                    ground, xrZeroplastHand_ >= 0, xrBrushRadius);
+                                m_ShellDispatcher.UpdateXrWorkarea(
+                                    ground, (hand.pressed & ANDROID_XR_SELECT) != 0,
+                                    xrWorkareaPressHand_ >= 0,
+                                    xrBrushRadius);
                             xrBrushUsesLeftHand = pointerHand == 0;
                         }
                     }
@@ -2095,16 +2106,16 @@ void GameShell::Show()
                                 if (endXrFrameIfMissionChanged()) return;
                                 if (BuildingInstallerInited())
                                     xrBuildHand_ = handIndex;
-                                if (m_ShellDispatcher.m_nEditRegion == editRegion1 &&
+                                if (m_ShellDispatcher.m_nEditRegion != editRegionNone &&
                                     CurrentMission.gameType_ != GT_PLAY_RELL)
-                                    xrZeroplastToolHand_ = handIndex;
+                                    xrWorkareaToolHand_ = handIndex;
                                 xrUiPressCaptured_ = true;
                                 xrUiPressHand_ = static_cast<int>(handIndex);
                             }
                             continue;
                         }
                         // A chosen work-area tool owns world trigger input.
-                        if (zeroplastMode || m_ShellDispatcher.m_nEditRegion == editRegion1)
+                        if (m_ShellDispatcher.m_nEditRegion != editRegionNone)
                             continue;
                         if (input.pressed & ANDROID_XR_CANCEL) {
                             universe()->DeselectAll();
@@ -2165,7 +2176,7 @@ void GameShell::Show()
                     }
                 }
             } else {
-                finishXrBrushStroke(true);
+                finishXrWorkareaPress(true);
                 xrAreaSelectHand_ = -1;
                 if (xrUiPressCaptured_)
                     _shellIconManager.lButtonReset();
@@ -2186,9 +2197,19 @@ void GameShell::Show()
             if (_shellIconManager.interfaceShowFlag())
                 universe()->PrepareShowInfo();
             // Keep transient placement and brush circles for both eye views.
+            const bool abyssBrush = m_ShellDispatcher.m_nEditRegion == editRegion2;
+            const bool eraseBrush = !abyssBrush &&
+                (!m_ShellDispatcher.m_bCanFlip ||
+                 !_shellIconManager.getCurrentEnabledOperation());
+            const int brushCursor = abyssBrush ? CShellCursorManager::rov :
+                eraseBrush ? CShellCursorManager::workarea_out :
+                             CShellCursorManager::workarea_in;
+            CircleColor brushCircle = circleColors.zeroLayerRadius;
+            brushCircle.color[0] = abyssBrush || eraseBrush ? 255 : 0;
+            brushCircle.color[1] = eraseBrush ? 0 : 255;
+            brushCircle.color[2] = 0;
             if (xrBrushRadius > 0.0f)
-                terCircleShowGraph(xrBrushPosition, xrBrushRadius,
-                                  circleColors.zeroLayerRadius);
+                terCircleShowGraph(xrBrushPosition, xrBrushRadius, brushCircle);
             gbCircleShow->BeginStereoDraw();
             androidXrSetUiPanelVisible(xrInput.focused && xrPanelVisible_ &&
                 panelTracked && _shellIconManager.interfaceShowFlag());
@@ -2240,8 +2261,6 @@ void GameShell::Show()
                                 referenceRotation * Vect3f::I,
                                 overlayRight, overlayUp, overlayFacing);
             const float brushPhase = static_cast<float>(std::fmod(clockf(), 1000.0) / 1000.0);
-            const bool eraseBrush = !m_ShellDispatcher.m_bCanFlip ||
-                !_shellIconManager.getCurrentEnabledOperation();
             const bool rendered = drawXrEyeViews(terRenderDevice, xrViews, [&](unsigned eye) {
                 cCamera* camera = xrEyeCameras_[eye];
                 terRenderDevice->SetRenderState(RS_FOGENABLE, false);
@@ -2258,7 +2277,7 @@ void GameShell::Show()
                     m_ShellDispatcher.drawXrTerrainMarkers(camera);
                     if (xrBrushRadius > 0.0f)
                         _shellCursorManager.drawXrBrush(camera, xrBrushPosition,
-                            xrBrushRadius, overlayRight, overlayUp, eraseBrush, brushPhase,
+                            xrBrushRadius, overlayRight, overlayUp, brushCursor, brushPhase,
                             xrBrushUsesLeftHand, viewerPosition);
                     if (xrAreaSelectHand_ >= 0 && xrAreaEyeVisible[eye]) {
                         drawXrAreaSelection(terRenderDevice, camera,
@@ -2344,7 +2363,7 @@ void GameShell::Show()
             _pUnitHover = nullptr;
         }
         if (!androidXrSessionActive() || !androidXrIsFocused())
-            finishXrBrushStroke(true);
+            finishXrWorkareaPress(true);
         if (androidXrSessionActive() && BuildingInstallerInited() &&
             !androidXrIsFocused()) {
             BuildingInstaller->CancelObject();

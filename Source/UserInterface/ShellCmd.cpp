@@ -17,6 +17,9 @@
 #include "PerimeterSound.h"
 #include "qd_textdb.h"
 #include "GameContent.h"
+#if defined(ANDROID_XR)
+#include "AndroidXrBootstrap.h"
+#endif
 
 extern char _bMenuMode;
 
@@ -110,6 +113,13 @@ void OnButtonWorkArea(CShellWindow* pWnd, InterfaceEventCode code, int param)
 
 		bool replay = gameShell->CurrentMission.gameType_ == GT_PLAY_RELL;
 
+#if defined(ANDROID_XR)
+        // XR world editing is driven by controller rays, independently of the UI pointer.
+        const bool useMouseInput = !androidXrSessionActive();
+#else
+        constexpr bool useMouseInput = true;
+#endif
+
 		CancelEditWorkarea();
 
 		if(_pShellDispatcher->m_nEditRegion != rg_wanted)
@@ -117,7 +127,7 @@ void OnButtonWorkArea(CShellWindow* pWnd, InterfaceEventCode code, int param)
 			MetaRegionLock lock(_pShellDispatcher->regionMetaDispatcher());
 			if(rg_wanted == editRegion1)
 			{
-				if (!replay) {
+				if (!replay && useMouseInput) {
 					_shellIconManager.AddDynamicHandler(OnMouseMoveRegionEdit, CBCODE_LBDOWN);
 					_shellIconManager.AddDynamicHandler(OnMouseMoveRegionEdit, CBCODE_MOUSEMOVE);
 				}
@@ -125,15 +135,17 @@ void OnButtonWorkArea(CShellWindow* pWnd, InterfaceEventCode code, int param)
 			}
 			else
 			{
-				if (!replay) {
+				if (!replay && useMouseInput) {
 					_shellIconManager.AddDynamicHandler(OnMouseMoveRegionEdit2, CBCODE_MOUSEMOVE);
 				}
 				_shellCursorManager.SetActiveCursor(CShellCursorManager::rov, 1);
 			}
 
-			_shellIconManager.AddDynamicHandler(OnLBUpWorkarea, CBCODE_LBUP);
-			_shellIconManager.AddDynamicHandler(OnLBDownWorkarea, CBCODE_LBDOWN);
-			_shellIconManager.AddDynamicHandler(OnRBDownWorkarea, CBCODE_RBDOWN);
+            if (useMouseInput) {
+                _shellIconManager.AddDynamicHandler(OnLBUpWorkarea, CBCODE_LBUP);
+                _shellIconManager.AddDynamicHandler(OnLBDownWorkarea, CBCODE_LBDOWN);
+                _shellIconManager.AddDynamicHandler(OnRBDownWorkarea, CBCODE_RBDOWN);
+            }
 			
 			_pShellDispatcher->m_bTolzerFirstClick = true;
 
@@ -292,20 +304,40 @@ int OnMouseMoveRegionEdit2(float x, float y)
 }
 
 #if defined(ANDROID_XR)
-Vect3f CShellLogicDispatcher::UpdateXrZeroplastBrush(const Vect3f& worldPosition,
-                                                   bool paint, float& brushRadius)
+Vect3f CShellLogicDispatcher::UpdateXrWorkarea(const Vect3f& worldPosition,
+                                             bool triggerPressed, bool triggerHeld,
+                                             float& brushRadius)
 {
     auto* regions = regionMetaDispatcher();
     MetaRegionLock lock(regions);
-    brushRadius = regions->getToolzerRadius();
+    const bool abyss = m_nEditRegion == editRegion2;
+    brushRadius = abyss ? toolzer_radius_fixed : regions->getToolzerRadius();
     const float margin = brushRadius + TOOLZER_EXTRA_MARGIN;
     Vect3f bounded = worldPosition;
     bounded.x = clamp(bounded.x, margin, vMap.H_SIZE - margin - 1);
     bounded.y = clamp(bounded.y, margin, vMap.V_SIZE - margin - 1);
-    if (!paint || m_nEditRegion != editRegion1 ||
+    if ((m_nEditRegion != editRegion1 && m_nEditRegion != editRegion2) ||
         gameShell->CurrentMission.gameType_ == GT_PLAY_RELL)
         return bounded;
 
+    if (abyss) {
+        // Match PC/Android: clicks place connected vertices; aim movement
+        // previews the next segment. Trigger hold does not commit vertices.
+        if (m_bTolzerFirstClick) {
+            if (triggerPressed) {
+                // Selecting a layer resets the line start; do it only at the anchor.
+                regions->setActiveLayer(editRegion2 - 1);
+                regions->setOperation(true);
+                regions->beginLine(Vect2f(bounded));
+                m_bTolzerFirstClick = false;
+            }
+        } else {
+            regions->lineto(Vect2f(bounded), triggerPressed ? 1 : 0);
+        }
+        return bounded;
+    }
+    if (!triggerHeld) return bounded;
+    regions->setActiveLayer(editRegion1 - 1);
     if (!m_bCanFlip) {
         // Match the tablet's erase tool: remove both abyss and Zeroplast areas.
         regions->setActiveLayer(editRegion2 - 1);

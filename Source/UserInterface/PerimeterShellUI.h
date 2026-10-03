@@ -1581,7 +1581,7 @@ public:
 	void draw();
 #if defined(ANDROID_XR)
     void drawXrBrush(cCamera* camera, const Vect3f& position, float radius,
-                     const Vect3f& right, const Vect3f& up, bool erase, float phase,
+                     const Vect3f& right, const Vect3f& up, int cursorId, float phase,
                      bool readoutOnRight, const Vect3f& viewerPosition);
 #endif
     static void DrawCursor(const CShellCursor* cursor, int x, int y, float phase = 0, float scale = 1.0f);

@@ -350,8 +350,8 @@ private:
     bool xrMenuPanelPoseAnchored_ = false;
     bool xrUiPressCaptured_ = false;
     int xrUiPressHand_ = -1;
-    unsigned xrZeroplastToolHand_ = 1; // Keep the right hand as the fallback.
-    int xrZeroplastHand_ = -1;
+    unsigned xrWorkareaToolHand_ = 1; // Keep the right hand as the fallback.
+    int xrWorkareaPressHand_ = -1;
     int xrAreaSelectHand_ = -1;
     Vect3f xrAreaSelectStartWorld_ = Vect3f::ZERO;
     Vect3f xrAreaSelectEndWorld_ = Vect3f::ZERO;
