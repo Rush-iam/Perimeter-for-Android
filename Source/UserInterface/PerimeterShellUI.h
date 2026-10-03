@@ -1530,6 +1530,9 @@ class CShellCursorManager
 	int           m_nCursorShift;
 
 	cFont*        m_hFontCursorWorkarea;
+#if defined(ANDROID_XR)
+    cFont* m_xrHeightFont = nullptr;
+#endif
 
 public:
 	enum
@@ -1576,6 +1579,11 @@ public:
 	void OnMouseMove(float x, float y);
 
 	void draw();
+#if defined(ANDROID_XR)
+    void drawXrBrush(cCamera* camera, const Vect3f& position, float radius,
+                     const Vect3f& right, const Vect3f& up, bool erase, float phase,
+                     bool readoutOnRight, const Vect3f& viewerPosition);
+#endif
     static void DrawCursor(const CShellCursor* cursor, int x, int y, float phase = 0, float scale = 1.0f);
 
 	float GetSize();

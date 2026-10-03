@@ -72,11 +72,19 @@ extern cCircleShow* gbCircleShow;
 
 class terRegionColumnMain
 {
+#if defined(ANDROID_XR)
+    struct XrMarker { Vect3f position; sColor4c color; };
+    std::vector<XrMarker> xrMarkers_;
+#else
 	std::vector<cObjectNodeRoot*> object;
+#endif
 public:
 	terRegionColumnMain();
 	virtual ~terRegionColumnMain();
 	void quant();
+#if defined(ANDROID_XR)
+    void drawXr(cCamera* camera);
+#endif
 protected:
 	void clear();
 };

@@ -1777,6 +1777,7 @@ void GameShell::Show()
             bool uiPointerVisible = false;
             Vect3f xrBrushPosition = Vect3f::ZERO;
             float xrBrushRadius = 0.0f;
+            bool xrBrushUsesLeftHand = false;
             float uiPointerX = 0.0f;
             float uiPointerY = 0.0f;
             bool panelTracked = false;
@@ -1983,6 +1984,7 @@ void GameShell::Show()
                             xrBrushPosition =
                                 m_ShellDispatcher.UpdateXrZeroplastBrush(
                                     ground, xrZeroplastHand_ >= 0, xrBrushRadius);
+                            xrBrushUsesLeftHand = pointerHand == 0;
                         }
                     }
                 } else {
@@ -2224,6 +2226,22 @@ void GameShell::Show()
                 xrViews[0].orientation,
                 Vect3f(0.0f, -overlayDistanceMeters * std::tan(0.3490658504f),
                        -overlayDistanceMeters));
+            MatXf leftWorld = xrEyeCameras_[0]->GetMatrix();
+            MatXf rightWorld = xrEyeCameras_[1]->GetMatrix();
+            leftWorld.invert();
+            rightWorld.invert();
+            const Vect3f viewerPosition = (leftWorld.trans() + rightWorld.trans()) * 0.5f;
+            const float neutralOrientation[4] = {0, 0, 0, 1};
+            const Mat3f referenceRotation = centerWorld.rot() *
+                xrCameraRig_->Pose(headPosition, neutralOrientation).rot();
+            Vect3f overlayRight, overlayUp, overlayFacing;
+            xrAreaBillboardAxes(leftWorld.rot() * Vect3f::K + rightWorld.rot() * Vect3f::K,
+                                referenceRotation * Vect3f::J,
+                                referenceRotation * Vect3f::I,
+                                overlayRight, overlayUp, overlayFacing);
+            const float brushPhase = static_cast<float>(std::fmod(clockf(), 1000.0) / 1000.0);
+            const bool eraseBrush = !m_ShellDispatcher.m_bCanFlip ||
+                !_shellIconManager.getCurrentEnabledOperation();
             const bool rendered = drawXrEyeViews(terRenderDevice, xrViews, [&](unsigned eye) {
                 cCamera* camera = xrEyeCameras_[eye];
                 terRenderDevice->SetRenderState(RS_FOGENABLE, false);
@@ -2237,6 +2255,11 @@ void GameShell::Show()
                     universe()->ShowInfo(false);
                 showWays();
                 if (inGameInterfaceActive) {
+                    m_ShellDispatcher.drawXrTerrainMarkers(camera);
+                    if (xrBrushRadius > 0.0f)
+                        _shellCursorManager.drawXrBrush(camera, xrBrushPosition,
+                            xrBrushRadius, overlayRight, overlayUp, eraseBrush, brushPhase,
+                            xrBrushUsesLeftHand, viewerPosition);
                     if (xrAreaSelectHand_ >= 0 && xrAreaEyeVisible[eye]) {
                         drawXrAreaSelection(terRenderDevice, camera,
                                             xrAreaScreenCorners[eye],

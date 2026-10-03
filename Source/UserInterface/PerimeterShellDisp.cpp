@@ -33,6 +33,10 @@
 #include "BelligerentSelect.h"
 
 #include "ANIFile.h"
+#if defined(ANDROID_XR)
+#include "xr/XrWorldQuad.h"
+#include "xr/XrHeightFont.h"
+#endif
 #include "files/files.h"
 
 namespace scripts_export {
@@ -566,6 +570,9 @@ void CShellCursorManager::Done()
     m_cursors.clear();
 
 	_RELEASE(m_hFontCursorWorkarea);
+#if defined(ANDROID_XR)
+    _RELEASE(m_xrHeightFont);
+#endif
 	_RELEASE(hFontMainmenu1);
 	_RELEASE(hFontMainmenu2);
 	_RELEASE(hFontMainmenu3);
@@ -606,6 +613,9 @@ void CShellCursorManager::Load()
 	SetActiveCursor(arrow);	
 
 	m_hFontCursorWorkarea = terVisGeneric->CreateGameFont(sqshShellMainFont, sqshCursorWorkAreaSize);
+#if defined(ANDROID_XR)
+    m_xrHeightFont = terVisGeneric->CreateGameFont("Arial", 48);
+#endif
 }
 void CShellCursorManager::SetActiveCursor(int cursor, char bPermanent)
 {
@@ -839,6 +849,46 @@ void CShellCursorManager::draw()
 		}
     }
 }
+
+#if defined(ANDROID_XR)
+void CShellCursorManager::drawXrBrush(cCamera* camera, const Vect3f& position,
+                                     float radius, const Vect3f& right,
+                                     const Vect3f& up, bool erase, float phase,
+                                     bool readoutOnRight, const Vect3f& viewerPosition)
+{
+    const auto& cursor = m_cursors[erase ? workarea_out : workarea_in];
+    // Engine camera space has opposite handedness to the reference billboard
+    // axes. Increasing texture U must run toward the viewer's screen right.
+    const Vect3f artworkRight = right * -1.0f;
+    // Both eyes use the same animation phase and world billboard.
+    // Like the PC cursor, keep the artwork readable over the ground. It still
+    // has world-space stereo parallax; depth testing would cut its lower half.
+    XrWorldOverlayDraw draw(terRenderDevice, camera, false);
+    const float size = radius * 2.0f;
+    // Query the bounded brush's terrain height, including at the map edges.
+    const float height = static_cast<float>(vMap.GetAlt(
+        vMap.XCYCL(xm::round(position.x)), vMap.YCYCL(xm::round(position.y)))) /
+        static_cast<float>(1 << VX_FRACTION);
+    const Vect3f anchor(position.x, position.y, height + 2.0f);
+    terRenderDevice->SetNoMaterial(ALPHA_BLEND, phase, cursor.texture);
+    xrWorldQuad(terRenderDevice,
+        anchor - artworkRight * (size * fWorkAreaCenterX) + up * (size * fWorkAreaCenterY),
+        artworkRight * size, up * -size, sColor4c(255, 255, 255, 255));
+
+    // Use shared stereo view depth so both eyes receive identical world glyphs.
+    // Fixed projected height, equivalent to 1.2 degrees at the view center.
+    Vect3f facing;
+    facing.cross(right, up);
+    const float depth = (viewerPosition - anchor).dot(facing);
+    if (depth <= 0.0f) return;
+    constexpr float readoutHalfAngleRadians = 0.0104719755f;
+    const float readoutHeight = depth * 2.0f * std::tan(readoutHalfAngleRadians);
+    xrDrawHeightReadout(terRenderDevice, m_xrHeightFont,
+                        static_cast<int>(height - vMap.hZeroPlast), anchor,
+                        artworkRight, up, readoutHeight,
+                        radius * 1.15f, readoutOnRight);
+}
+#endif
 
 float CShellCursorManager::GetSize()
 {

@@ -143,6 +143,9 @@ struct CShellLogicDispatcher
 	bool unitNeedRepairOrBuild(terUnitBase* p);
 
 	bool ShowTerraform() const;
+#if defined(ANDROID_XR)
+    void drawXrTerrainMarkers(cCamera* camera);
+#endif
 
 	cFont* getFont() const { return	m_hFontUnitsLabel; }
 	void toggleAlwaysShowLifebars() {

@@ -11,6 +11,9 @@
 #include "../HT/ht.h"
 #include "StdAfxRD.h"
 #include "DrawBuffer.h"
+#if defined(ANDROID_XR)
+#include "xr/XrWorldQuad.h"
+#endif
 
 #define ZFIX 2.0f
 
@@ -888,10 +891,14 @@ terRegionColumnMain::~terRegionColumnMain()
 
 void terRegionColumnMain::clear()
 {
+#if defined(ANDROID_XR)
+    xrMarkers_.clear();
+#else
 	std::vector<cObjectNodeRoot*>::iterator it;
 	FOR_EACH(object,it)
 		(*it)->Release();
 	object.clear();
+#endif
 }
 
 bool terCheckFilthHardness(int x,int y);
@@ -907,7 +914,12 @@ void terRegionColumnMain::quant()
 	sColor4f red(sColor4c(RegionMain.column_red));
 	sColor4f green(sColor4c(RegionMain.column_green));
 
+#if defined(ANDROID_XR)
+    // Rebuild the snapshot while retaining capacity for the next frame.
+    xrMarkers_.clear();
+#else
 	int cur_object=0;
+#endif
 	int step=RegionMain.column_step;
 	MetaRegionLock lock(_pShellDispatcher->regionMetaDispatcher());
 
@@ -933,6 +945,9 @@ void terRegionColumnMain::quant()
 					if(pos.z<=vMap.hZeroPlast)
 						continue;
 					bool hard=terCheckFilthHardness(x,c.y);
+#if defined(ANDROID_XR)
+                    xrMarkers_.push_back({pos, sColor4c(hard ? red : green)});
+#else
 					
 					if(object.size()<=cur_object)
 					{
@@ -948,12 +963,39 @@ void terRegionColumnMain::quant()
 					p->SetPosition(mat);
 
 					cur_object++;
+#endif
 				}
 			}
 		}
 	}
 
+#if !defined(ANDROID_XR)
 	for(int i=cur_object;i<object.size();i++)
 		object[i]->Release();
 	object.resize(cur_object);
+#endif
 }
+
+#if defined(ANDROID_XR)
+void CShellLogicDispatcher::drawXrTerrainMarkers(cCamera* camera)
+{
+    if (pColumnMain) pColumnMain->drawXr(camera);
+}
+
+void terRegionColumnMain::drawXr(cCamera* camera)
+{
+    if (!_pShellDispatcher->ShowTerraform()) return;
+    XrWorldOverlayDraw draw(terRenderDevice, camera, true, true);
+    terRenderDevice->SetNoMaterial(ALPHA_NONE);
+    const float halfSize = RegionMain.column_model_size * 0.5f;
+    // Terrain-aligned box: width and depth 2s, height 4s.
+    const Vect3f dx(2 * halfSize, 0, 0), dy(0, 2 * halfSize, 0);
+    const Vect3f dz(0, 0, 4 * halfSize);
+    for (const auto& marker : xrMarkers_) {
+        const Vect3f base = marker.position + Vect3f(-halfSize, -halfSize, 0.25f);
+        sColor4c color = marker.color;
+        color.a = 255;
+        xrWorldBox(terRenderDevice, base, dx, dy, dz, color);
+    }
+}
+#endif
