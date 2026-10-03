@@ -1418,6 +1418,10 @@ class CHintWindow : public CShellWindow
 
 	std::string textData;
 	int   m_nTimeToDisplay;
+#if defined(ANDROID_XR)
+    bool xrOverlayActive_ = false;
+    cFont* xrFont_ = nullptr;
+#endif
 
 	float cutSceneX;
 	float cutSceneY;
@@ -1432,12 +1436,20 @@ public:
 	void SetTime(int t);
 	void draw(int bFocus) override;
 	void drawHint(bool cutScene);
+#if defined(ANDROID_XR)
+    void setXrOverlayActive(bool active) { xrOverlayActive_ = active; }
+    void advanceXrOverlay();
+    void drawXrOverlay(float left, float top, float width, float height);
+#endif
 };
 
 class CChatInfoWindow : public ChatWindow
 {
     cTexture* m_hPopupTexture;
 	int   m_nTimeToDisplay;
+#if defined(ANDROID_XR)
+    bool xrOverlayActive_ = false;
+#endif
 
 public:
 	CChatInfoWindow(int id, CShellWindow* pParent, EVENTPROC p);
@@ -1460,6 +1472,11 @@ public:
     void Load(const sqshControl* attr) override;
     
 	void draw(int bFocus) override;
+#if defined(ANDROID_XR)
+    void setXrOverlayActive(bool active) { xrOverlayActive_ = active; }
+    void advanceXrOverlay();
+    void drawXrOverlay(float left, float top, float width, float height);
+#endif
 };
 
 class CNetLatencyInfoWindow : public CShellWindow

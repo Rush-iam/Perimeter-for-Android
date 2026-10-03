@@ -1930,6 +1930,28 @@ void GameShell::Show()
                     (hoveredUnits[1] ? hoveredUnits[1] : hoveredUnits[0]) : nullptr;
                 if (_pUnitHover()) _pUnitHover->Mark();
             }
+            auto* xrChatInfo = static_cast<CChatInfoWindow*>(
+                _shellIconManager.GetWnd(SQSH_CHAT_INFO_ID));
+            auto* xrMissionHint = static_cast<CHintWindow*>(
+                _shellIconManager.GetWnd(SQSH_HINT_ID));
+            if (xrChatInfo) {
+                xrChatInfo->setXrOverlayActive(true);
+                xrChatInfo->advanceXrOverlay();
+            }
+            if (xrMissionHint) {
+                xrMissionHint->setXrOverlayActive(true);
+                xrMissionHint->advanceXrOverlay();
+            }
+            const Vect3f headCenter(
+                (xrViews[0].position[0] + xrViews[1].position[0]) * 0.5f,
+                (xrViews[0].position[1] + xrViews[1].position[1]) * 0.5f,
+                (xrViews[0].position[2] + xrViews[1].position[2]) * 0.5f);
+            // Center chat and mission subtitles 20 degrees below the head's forward direction.
+            constexpr float overlayDistanceMeters = 1.5f;
+            const Vect3f overlayAnchor = headCenter + rotateXrVector(
+                xrViews[0].orientation,
+                Vect3f(0.0f, -overlayDistanceMeters * std::tan(0.3490658504f),
+                       -overlayDistanceMeters));
             const bool rendered = drawXrEyeViews(terRenderDevice, xrViews, [&](unsigned eye) {
                 cCamera* camera = xrEyeCameras_[eye];
                 terRenderDevice->SetRenderState(RS_FOGENABLE, false);
@@ -1956,12 +1978,59 @@ void GameShell::Show()
                                                            : sColor4c(255, 180, 64, 255));
                     }
                 }
+                if ((xrChatInfo && xrChatInfo->isVisible()) ||
+                    (xrMissionHint && xrMissionHint->isVisible())) {
+                    const auto& view = xrViews[eye];
+                    const float inverseOrientation[4] = {
+                        -view.orientation[0], -view.orientation[1],
+                        -view.orientation[2], view.orientation[3]};
+                    const Vect3f eyePosition(view.position[0], view.position[1],
+                                              view.position[2]);
+                    const float left = std::tan(view.fov[0]);
+                    const float right = std::tan(view.fov[1]);
+                    const float down = std::tan(view.fov[2]);
+                    const float up = std::tan(view.fov[3]);
+                    if (right > left && up > down) {
+                        const auto projectOverlayAnchor = [&](const Vect3f& anchor,
+                                                              float& x, float& y) {
+                            const Vect3f inEye = rotateXrVector(
+                                inverseOrientation, anchor - eyePosition);
+                            if (inEye.z >= -0.05f) return false;
+                            x = (inEye.x / -inEye.z - left) /
+                                (right - left) * view.width;
+                            y = (up - inEye.y / -inEye.z) /
+                                (up - down) * view.height;
+                            return true;
+                        };
+                        // A plane spanning +/-20 degrees from the gaze is a
+                        // 40-degree horizontal subtitle window at this depth.
+                        const float subtitleWidth = std::min(view.width * 0.9f,
+                            2.0f * std::tan(0.3490658504f) /
+                                (right - left) * view.width);
+                        float x, y;
+                        if (xrMissionHint && xrMissionHint->isVisible()) {
+                            const float hintHeight = view.height * 0.2f;
+                            if (projectOverlayAnchor(overlayAnchor, x, y))
+                                xrMissionHint->drawXrOverlay(x - subtitleWidth * 0.5f,
+                                    y - hintHeight * 0.5f, subtitleWidth, hintHeight);
+                        }
+                        if (xrChatInfo && xrChatInfo->isVisible() &&
+                            projectOverlayAnchor(overlayAnchor, x, y)) {
+                            const float chatWidth = view.width * 0.7f;
+                            const float chatHeight = view.height * 0.16f;
+                            xrChatInfo->drawXrOverlay(x - chatWidth * 0.5f,
+                                y - chatHeight * 0.5f, chatWidth, chatHeight);
+                        }
+                    }
+                }
             });
             gbCircleShow->EndStereoDraw();
             if (rendered && xrInput.focused && xrPanelVisible_ && panelTracked &&
                 _shellIconManager.interfaceShowFlag())
                 drawXrUiPanel(terRenderDevice, &m_ShellDispatcher,
                               uiWidth, uiHeight, uiPointerVisible, uiPointerX, uiPointerY);
+            if (xrChatInfo) xrChatInfo->setXrOverlayActive(false);
+            if (xrMissionHint) xrMissionHint->setXrOverlayActive(false);
             androidXrEndFrame(rendered);
             m_ShellDispatcher.PostDraw();
             terScene->PostDraw(centerCamera);

@@ -6004,6 +6004,10 @@ void CInfoWindow::draw(int bFocus)
 
 CHintWindow::CHintWindow(int id, CShellWindow* pParent, EVENTPROC p) : CShellWindow(id, pParent, p) {
 	m_hFont = terVisGeneric->CreateGameFont(sqshShellMainFont1, HINT_FONT_SIZE);
+#if defined(ANDROID_XR)
+    xrFont_ = terVisGeneric->CreateGameFont(sqshShellMainFont1,
+        std::max(1, (HINT_FONT_SIZE * 3 + 1) / 2));
+#endif
 	cutSceneX = 0;
 	cutSceneY = 0;
 	cutSceneSX = 800;
@@ -6022,6 +6026,9 @@ void CHintWindow::Load(const sqshControl* attr) {
 
 CHintWindow::~CHintWindow()
 {
+#if defined(ANDROID_XR)
+    _RELEASE(xrFont_);
+#endif
 	_RELEASE(m_hFont);
 }
 
@@ -6049,6 +6056,9 @@ void CHintWindow::draw(int bFocus)
 }
 
 void CHintWindow::drawHint(bool cutScene) {
+#if defined(ANDROID_XR)
+    if (xrOverlayActive_) return;
+#endif
 	if (state & SQSH_VISIBLE) {
 		if (m_nTimeToDisplay > 0) {
 			m_nTimeToDisplay -= frame_time.delta();
@@ -6077,6 +6087,41 @@ void CHintWindow::drawHint(bool cutScene) {
 		}
 	}
 }
+
+#if defined(ANDROID_XR)
+void CHintWindow::advanceXrOverlay() {
+    if (!(state & SQSH_VISIBLE) || m_nTimeToDisplay <= 0) return;
+    m_nTimeToDisplay -= frame_time.delta();
+    if (m_nTimeToDisplay <= 0) Show(false);
+}
+
+void CHintWindow::drawXrOverlay(float left, float top, float width, float height) {
+    constexpr float padding = 8.0f;
+    if (!(state & SQSH_VISIBLE) || textData.empty() || width <= 2.0f * padding ||
+        height <= 0) return;
+    cFont* const font = xrFont_ ? xrFont_ : m_hFont;
+    if (!font)
+        return;
+
+    terRenderDevice->SetFont(font);
+    const std::string text = formatPlainText(textData, width - 2.0f * padding);
+    Vect2f textMin, textMax;
+    OutTextRect(0, 0, text.c_str(), 0, textMin, textMax);
+    const float textWidth = textMax.x - textMin.x;
+    const float textHeight = textMax.y - textMin.y;
+    const float x = left + width * 0.5f - (textMin.x + textMax.x) * 0.5f;
+    const float y = top + (height - textHeight) * 0.5f - textMin.y;
+    terRenderDevice->DrawRectangle(
+        static_cast<int>(std::floor(x + textMin.x - padding)),
+        static_cast<int>(std::floor(y + textMin.y - padding)),
+        static_cast<int>(std::ceil(textWidth + 2.0f * padding)),
+        static_cast<int>(std::ceil(textHeight + 2.0f * padding)),
+        sColor4c(0, 0, 0, 128));
+    terRenderDevice->OutText(x, y, text.c_str(),
+        sColor4f(1, 1, 1, 1), 0);
+    terRenderDevice->SetFont(nullptr);
+}
+#endif
 
 CChatInfoWindow::CChatInfoWindow(int id, CShellWindow* pParent, EVENTPROC p) : ChatWindow(id, pParent, p) {
     scroll_left = true;
@@ -6117,6 +6162,9 @@ void CChatInfoWindow::Load(const sqshControl* attr) {
 }
 
 void CChatInfoWindow::draw(int bFocus) {
+#if defined(ANDROID_XR)
+    if (xrOverlayActive_) return;
+#endif
 	if (state & SQSH_VISIBLE) {
 		if (m_nTimeToDisplay > 0) {
 			m_nTimeToDisplay -= frame_time.delta();
@@ -6140,6 +6188,44 @@ void CChatInfoWindow::draw(int bFocus) {
 		}
 	}
 }
+
+#if defined(ANDROID_XR)
+void CChatInfoWindow::advanceXrOverlay() {
+    if (!(state & SQSH_VISIBLE) || m_nTimeToDisplay <= 0) return;
+    m_nTimeToDisplay -= frame_time.delta();
+    if (m_nTimeToDisplay <= 0) {
+        m_nTimeToDisplay = 0;
+        Show(false);
+    }
+}
+
+void CChatInfoWindow::drawXrOverlay(float left, float top, float width, float height) {
+    if (!(state & SQSH_VISIBLE) || m_data.empty() || width <= 0 || height <= 0 ||
+        m_fStringHeight <= 0) return;
+
+    float alpha = 1.0f;
+    if (m_nTimeToDisplay >= 0 && m_nTimeToDisplay < CHATINFO_FADE_TIME)
+        alpha = static_cast<float>(m_nTimeToDisplay) / CHATINFO_FADE_TIME;
+
+    const int visibleRows = std::min(static_cast<int>(m_data.size()) - m_nTopItem,
+        static_cast<int>(height / m_fStringHeight));
+    if (visibleRows <= 0) return;
+    const int firstRow = std::max(m_nTopItem,
+        static_cast<int>(m_data.size()) - visibleRows);
+    float rowY = top + height - visibleRows * m_fStringHeight;
+    for (int row = firstRow; row < firstRow + visibleRows; ++row) {
+        const LocalizedText& entry = m_data[row];
+        cFont* font = startsWith(entry.locale, "russian") ? m_hFont1251 : m_hFont1250;
+        terRenderDevice->SetFont(font);
+        const std::string line = getValidatedText(entry.text, width);
+        const float textY = rowY + (m_fStringHeight - font->GetHeight()) * 0.5f;
+        terRenderDevice->OutText(left, textY, line.c_str(),
+            sColor4f(1, 1, 1, alpha), SHELL_ALIGN_LEFT);
+        rowY += m_fStringHeight;
+    }
+    terRenderDevice->SetFont(nullptr);
+}
+#endif
 
 
 CNetLatencyInfoWindow::CNetLatencyInfoWindow(int id, CShellWindow* pParent, EVENTPROC p) : CShellWindow(id, pParent, p) {
