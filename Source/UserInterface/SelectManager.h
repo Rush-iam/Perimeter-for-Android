@@ -68,10 +68,19 @@ protected:
 	                                      bool selectableOnly);
 #endif
     enum SelectionPriority {
+#if defined(__ANDROID__)
+        // Opinionated: use the original game priorities because selection hotkeys
+        // are unavailable on Android and VR.
+        SQUAD = 1,
+        MMP,
+        CORES,
+        GUNS,
+#else
         CORES = 1,
         GUNS,
         MMP,
         SQUAD,
+#endif
         REST,
     };
 
