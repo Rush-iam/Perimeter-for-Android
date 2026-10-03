@@ -532,6 +532,8 @@ void terCameraType::quant(float mouseDeltaX, float mouseDeltaY, float delta_time
             interpolationPoints_[2].position() = target;
             interpolationPoints_[3].position() = target;
         }
+        const bool xrReplayFinalSegment = !xrReplayEntry_ && replayIndex_ >= 0 &&
+            path_.size() > 1 && replayIndex_ == replayIndexMax_ - 1;
 #endif
 		float t = (frame_time() - interpolationTimer_)/(float)interpolationDuration_;
 		if(t >= 1){
@@ -570,9 +572,17 @@ void terCameraType::quant(float mouseDeltaX, float mouseDeltaY, float delta_time
             const float eased = t * t * (3.0f - 2.0f * t);
             coordinate_ = interpolationPoints_[1] * (1.0f - eased) +
                           interpolationPoints_[2] * eased;
-        } else
-#endif
+        } else {
+            if (xrReplayFinalSegment) {
+                // This cubic has unit slope at the start and zero slope at
+                // the end, preserving entry speed while stopping smoothly.
+                t += t * t * (1.0f - t);
+            }
+            coordinate_.interpolateHermite(interpolationPoints_, t);
+        }
+#else
 		coordinate_.interpolateHermite(interpolationPoints_, t);
+#endif
 		coordinate().check(false);
 	}
 	else{
