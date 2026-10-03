@@ -1663,6 +1663,9 @@ class CShellIconManager
 	float			m_fTimePressed;
 
 	cFont*          m_hFontPopup;
+#if defined(ANDROID_XR)
+    cFont*          m_hFontHoverPopup;
+#endif
 	cFont*          m_hFontCountDownTime;
 	cTexture*		m_hPopupTexture;
 

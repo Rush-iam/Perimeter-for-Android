@@ -932,6 +932,9 @@ CShellIconManager::CShellIconManager()
 	m_pLastClicked = 0;
 	m_fEffectTime = 0;
 	m_hFontPopup = 0;
+#if defined(ANDROID_XR)
+    m_hFontHoverPopup = nullptr;
+#endif
 	m_hFontCountDownTime = 0;
 	m_hPopupTexture = 0;
 	m_pModalWnd = 0;
@@ -1000,6 +1003,9 @@ void CShellIconManager::Done()
 	_bMenuMode = 0;
 
 	_RELEASE(m_hFontPopup);
+#if defined(ANDROID_XR)
+    _RELEASE(m_hFontHoverPopup);
+#endif
 	_RELEASE(m_hFontCountDownTime);
 	_RELEASE(m_hPopupTexture);
 
@@ -1314,6 +1320,9 @@ void CShellIconManager::LoadControlsGroup(int nGroup, bool force)
 			_bMenuMode = 0;
 
 			m_hFontPopup = terVisGeneric->CreateGameFont(sqshFontPopup, infoWndFontSize);
+#if defined(ANDROID_XR)
+            m_hFontHoverPopup = terVisGeneric->CreateGameFont(sqshFontPopup, xm::round(infoWndFontSize * 1.5f));
+#endif
 			m_hFontCountDownTime = terVisGeneric->CreateGameFont(sqshFontCountDownTime, sqshFontCountDownTimeSize);
 			m_hPopupTexture = terVisGeneric->CreateTexture(sPopupTexture);
 
@@ -2607,7 +2616,11 @@ void CShellIconManager::draw()
 
 					if(!cbPopupBuffer.empty())
 					{
+#if defined(ANDROID_XR)
+                        terRenderDevice->SetFont(m_hFontHoverPopup);
+#else
 						terRenderDevice->SetFont(m_hFontPopup);
+#endif
 
 						Vect2f v1, v2;
 						OutTextRect(0, 0 , cbPopupBuffer.c_str(), -1, v1, v2);

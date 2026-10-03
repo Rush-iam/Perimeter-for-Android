@@ -5932,7 +5932,11 @@ void CProgressUnitCharge::draw(int bFocus)
 
 CInfoWindow::CInfoWindow(int id, CShellWindow* pParent, EVENTPROC p) : CShellWindow(id, pParent, p)
 {
+#if defined(ANDROID_XR)
+    m_hFont = terVisGeneric->CreateGameFont(sqshShellMainFont1, xm::round(infoWndFontSize * 1.5f));
+#else
 	m_hFont = terVisGeneric->CreateGameFont(sqshShellMainFont1, infoWndFontSize);
+#endif
 	m_cbText = "";
 	m_pFmtProc = 0;
 	m_bCentered = false;
