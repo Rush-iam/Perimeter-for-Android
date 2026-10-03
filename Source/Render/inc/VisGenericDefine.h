@@ -53,4 +53,9 @@ enum eAttributeLight
 	ATTRLIGHT_SPHERICAL_SPRITE		=	1<<6,	// источник света рисуется кучей спрайтов
 };
 
+#if defined(ANDROID_XR)
+// Draw the building footprint before translucent model meshes in both eyes.
+constexpr int ATTRUNKOBJ_XR_PLACEMENT_PLANE = 1 << 21;
+#endif
+
 #endif // _VISGENERIC_DEFINE_H_

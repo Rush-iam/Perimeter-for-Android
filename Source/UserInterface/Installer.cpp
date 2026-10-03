@@ -363,8 +363,12 @@ void terBuildingInstaller::UpdateInfo(cCamera *DrawNode)
 
 	SetBuildPositionLocked(old_build_position, old_build_angle, old_build_player);
 
-	if(plane==0)
+	if(plane==0) {
 		plane=terScene->CreatePlaneObj();
+#if defined(ANDROID_XR)
+		plane->SetAttr(ATTRUNKOBJ_XR_PLACEMENT_PLANE);
+#endif
+	}
 
 	if(light_show && DrawNode && DrawNode->FindCildCamera(ATTRCAMERA_SHADOW) &&
 		gb_VisGeneric->GetShadowType()!=SHADOW_MAP_SELF)

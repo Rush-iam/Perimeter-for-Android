@@ -699,8 +699,13 @@ void cObjectNodeRoot::PreDraw(cCamera *DrawNode)
 	//////calc lod
 	if(RootLod)
 	{
+#if defined(ANDROID_XR)
+		float d=DrawNode->GetLodPosition().distance(GetGlobalMatrix().trans());
+		float fLOD=GetScale().x*DrawNode->GetLodFocus()/d;
+#else
 		float d=DrawNode->GetPos().distance(GetGlobalMatrix().trans());
 		float fLOD=GetScale().x*DrawNode->GetFocusViewPort().x/d;
+#endif
 		if(fLOD<Option_FarDistanceLOD)
 		{
 			RootLod->PreDraw(DrawNode);

@@ -67,6 +67,17 @@ public:
 	// The ordinary centered projection remains active until this is called.
 	void SetAsymmetricPerspective(float left, float right, float down, float up);
 	void SetViewSizeOverride(float width, float height);
+	void SetStereoLodReference(const Vect3f& position, float focus) {
+		stereoLodPosition = position;
+		stereoLodFocus = focus;
+		stereoLodReferenceValid = true;
+	}
+	const Vect3f& GetLodPosition() const {
+		return stereoLodReferenceValid ? stereoLodPosition : Pos;
+	}
+	float GetLodFocus() const {
+		return stereoLodReferenceValid ? stereoLodFocus : FocusViewPort.x;
+	}
 #endif
 	virtual void GetPlaneClip(sPlane4f PlaneClip[5],const sRectangle4f *Rect);
 
@@ -170,15 +181,27 @@ protected:
 	{
 		float distance;
 		cIUnkClass* obj;
+#if defined(ANDROID_XR)
+		bool placementPlane = false;
+#endif
 
 		inline ObjectSort(){}
-		inline ObjectSort(float d,cIUnkClass* o){distance=d;obj=o;}
+		inline ObjectSort(float d,cIUnkClass* o){
+			distance=d;obj=o;
+#if defined(ANDROID_XR)
+			placementPlane=o->GetAttr(ATTRUNKOBJ_XR_PLACEMENT_PLANE) != 0;
+#endif
+		}
 	};
 
 	struct ObjectSortByRadius
 	{
 		inline bool operator()(const ObjectSort& o1,const ObjectSort& o2)
 		{
+#if defined(ANDROID_XR)
+			if (o1.placementPlane != o2.placementPlane)
+				return o1.placementPlane;
+#endif
 			return o1.distance>o2.distance;
 		}
 	};
@@ -196,6 +219,9 @@ protected:
 	float asymmetricLeft = 0, asymmetricRight = 0;
 	float asymmetricDown = 0, asymmetricUp = 0;
 	Vect2f viewSizeOverride = Vect2f(0, 0);
+	bool stereoLodReferenceValid = false;
+	Vect3f stereoLodPosition = Vect3f::ZERO;
+	float stereoLodFocus = 0.0f;
 #endif
 
 	//new
