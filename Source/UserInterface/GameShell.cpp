@@ -53,6 +53,7 @@
 #include "xr/XrUnitRay.h"
 #include "DrawBuffer.h"
 #include "VertexFormat.h"
+#include <cmath>
 #endif
 #include <cstring>
 #endif
@@ -170,6 +171,111 @@ static void drawXrPanelCursor(cInterfaceRenderDevice* renderer, float pixelX, fl
     renderer->DrawRectangle(x, y, 1, 1, cursor);
 }
 
+static bool projectXrAreaScreenPoint(cCamera* camera,
+                                     const AndroidXrEyeView& view,
+                                     const Vect3f& world, Vect2f& screen,
+                                     bool requireViewport = true)
+{
+    if (!view.width || !view.height) return false;
+    Vect3f eye, pixel;
+    camera->GetMatrix().xformPoint(world, eye);
+    if (eye.z <= camera->GetZPlane().x) return false;
+    camera->ConvertorWorldToViewPort(&world, nullptr, &pixel);
+    const float x = pixel.x / view.width;
+    const float y = pixel.y / view.height;
+    if (!std::isfinite(x) || !std::isfinite(y)) return false;
+    if (requireViewport && (x < 0.0f || x > 1.0f || y < 0.0f || y > 1.0f))
+        return false;
+    screen.set(x - 0.5f, y - 0.5f);
+    return true;
+}
+
+static void xrAreaBillboardAxes(const Vect3f& viewForward,
+                                const Vect3f& referenceUp,
+                                const Vect3f& referenceRight,
+                                Vect3f& right, Vect3f& up, Vect3f& facing)
+{
+    // Use the view direction for every anchor, including points near the
+    // edge of the eye buffer. A head-to-anchor normal tilts those rectangles.
+    facing = viewForward * -1.0f;
+    if (facing.norm2() < 1.0e-6f) facing = Vect3f::K;
+    facing.normalize();
+    up = referenceUp - facing * referenceUp.dot(facing);
+    if (up.norm2() < 1.0e-4f)
+        up = referenceRight - facing * referenceRight.dot(facing);
+    up.normalize();
+    right.cross(up, facing);
+}
+
+static bool xrAreaRayOnBillboard(const MatXf& aim, const Vect3f& anchor,
+                                const Vect3f& facing, float maxDistance,
+                                Vect3f& end)
+{
+    const Vect3f direction = aim.rot() * Vect3f::K;
+    const float denominator = direction.dot(facing);
+    if (std::abs(denominator) < 1.0e-5f) return false;
+    const float distance = (anchor - aim.trans()).dot(facing) / denominator;
+    if (distance <= 0.0f || distance > maxDistance) return false;
+    end = aim.trans() + direction * distance;
+    return true;
+}
+
+static void xrAreaBillboardCorners(const Vect3f& anchor, const Vect3f& end,
+                                   const Vect3f& right, const Vect3f& up,
+                                   Vect3f (&corners)[4])
+{
+    const Vect3f horizontal = right * (end - anchor).dot(right);
+    const Vect3f vertical = up * (end - anchor).dot(up);
+    corners[0] = anchor;
+    corners[1] = anchor + horizontal;
+    corners[2] = anchor + horizontal + vertical;
+    corners[3] = anchor + vertical;
+}
+
+static bool xrProjectAreaCorners(cCamera* camera, const AndroidXrEyeView& view,
+                                 const Vect3f (&world)[4], Vect2f (&screen)[4])
+{
+    for (unsigned i = 0; i < 4; ++i)
+        if (!projectXrAreaScreenPoint(camera, view, world[i], screen[i], false))
+            return false;
+    return true;
+}
+
+static bool xrPointInAreaCorners(const Vect2f& point, const Vect2f (&corners)[4])
+{
+    const Vect2f width = corners[1] - corners[0];
+    const Vect2f height = corners[3] - corners[0];
+    if (std::abs(width.x * height.y - width.y * height.x) < 1.0e-7f)
+        return false;
+    float sign = 0.0f;
+    for (unsigned i = 0; i < 4; ++i) {
+        const Vect2f& a = corners[i];
+        const Vect2f& b = corners[(i + 1) % 4];
+        const float cross = (b.x - a.x) * (point.y - a.y) -
+                            (b.y - a.y) * (point.x - a.x);
+        if (std::abs(cross) < 1.0e-7f) continue;
+        if (sign != 0.0f && cross * sign < 0.0f) return false;
+        sign = cross;
+    }
+    return true;
+}
+
+static void drawXrAreaSelection(cInterfaceRenderDevice* renderer, cCamera* camera,
+                                const Vect2f (&corners)[4],
+                                unsigned width, unsigned height)
+{
+    renderer->SetDrawTransform(camera);
+    const sColor4c color(0, 255, 0, 255);
+    for (unsigned i = 0; i < 4; ++i) {
+        const Vect2f& a = corners[i];
+        const Vect2f& b = corners[(i + 1) % 4];
+        renderer->DrawLineSubpixel((a.x + 0.5f) * width,
+                                   (a.y + 0.5f) * height,
+                                   (b.x + 0.5f) * width,
+                                   (b.y + 0.5f) * height, color);
+    }
+}
+
 static void getXrHeadPosition(const AndroidXrEyeView views[2], float position[3])
 {
     for (unsigned axis = 0; axis < 3; ++axis)
@@ -227,6 +333,59 @@ static Vect3f getXrScalePivot(const XrCameraRig& rig, const MatXf& centerWorld,
     return rayStart + rayDirection * pivotDistanceGameUnits;
 }
 
+struct XrSurfaceHit {
+    float distance;
+    bool hit;
+};
+
+static XrSurfaceHit getXrWorldSurfaceHit(const Vect3f& origin,
+                                         const Vect3f& direction,
+                                         const Vect3f& skyCenter, float skyRadius,
+                                         float fallbackDistance)
+{
+    XrSurfaceHit result{xrRaySphereDistance(origin, direction,
+                                           skyCenter, skyRadius), false};
+    result.hit = result.distance > 0.0f;
+    if (!result.hit) result.distance = fallbackDistance;
+
+    // cChaos draws its ocean at Z=0, extending from -3 to +4 map widths.
+    if (std::abs(direction.z) > 1.0e-6f) {
+        const float oceanDistance = -origin.z / direction.z;
+        const Vect3f ocean = origin + direction * oceanDistance;
+        if (oceanDistance > 0.0f && oceanDistance < result.distance &&
+            ocean.x >= -3.0f * vMap.H_SIZE &&
+            ocean.x <= 4.0f * vMap.H_SIZE && ocean.y >= -3.0f * vMap.V_SIZE &&
+            ocean.y <= 4.0f * vMap.V_SIZE) {
+            result.distance = oceanDistance;
+            result.hit = true;
+        }
+    }
+    const float terrainDistance = xrRayTerrainDistance(origin, direction,
+        vMap.H_SIZE, vMap.V_SIZE, result.distance, [](int x, int y) {
+            return vMap.GetAlt(x, y) / static_cast<float>(1 << VX_FRACTION);
+        });
+    if (terrainDistance > 0.0f && terrainDistance < result.distance) {
+        result.distance = terrainDistance;
+        result.hit = true;
+    }
+    return result;
+}
+
+static bool getXrAreaSurfaceHit(const MatXf& worldAim,
+                                const Vect3f& skyCenter, float skyRadius,
+                                Vect3f& point)
+{
+    const Vect3f origin = worldAim.trans();
+    Vect3f direction = worldAim.rot() * Vect3f::K;
+    direction.normalize();
+    const float maxDistance = std::max(5000.0f,
+        8.0f * static_cast<float>(std::max(vMap.H_SIZE, vMap.V_SIZE)));
+    const XrSurfaceHit surface = getXrWorldSurfaceHit(origin, direction,
+        skyCenter, skyRadius, maxDistance);
+    if (surface.hit) point = origin + direction * surface.distance;
+    return surface.hit;
+}
+
 static float getXrControllerLaserDistance(const AndroidXrHandState& hand,
                                           const XrCameraRig& rig,
                                           const MatXf& centerWorld,
@@ -247,24 +406,10 @@ static float getXrControllerLaserDistance(const AndroidXrHandState& hand,
     const Vect3f origin = worldAim.trans();
     Vect3f direction = worldAim.rot() * Vect3f::K;
     direction.normalize();
-    float distance = xrRaySphereDistance(origin, direction, skyCenter, skyRadius);
-    if (distance <= 0.0f) distance = fallbackDistanceMeters * rig.UnitsPerMeter();
+    float distance = getXrWorldSurfaceHit(origin, direction,
+        skyCenter, skyRadius,
+        fallbackDistanceMeters * rig.UnitsPerMeter()).distance;
     if (panelHit) distance = std::min(distance, panelDistance * rig.UnitsPerMeter());
-
-    // cChaos draws its ocean at Z=0, extending from -3 to +4 map widths.
-    if (std::abs(direction.z) > 1.0e-6f) {
-        const float oceanDistance = -origin.z / direction.z;
-        const Vect3f ocean = origin + direction * oceanDistance;
-        if (oceanDistance > 0.0f && ocean.x >= -3.0f * vMap.H_SIZE &&
-            ocean.x <= 4.0f * vMap.H_SIZE && ocean.y >= -3.0f * vMap.V_SIZE &&
-            ocean.y <= 4.0f * vMap.V_SIZE)
-            distance = std::min(distance, oceanDistance);
-    }
-    const float terrainDistance = xrRayTerrainDistance(origin, direction,
-        vMap.H_SIZE, vMap.V_SIZE, distance, [](int x, int y) {
-            return vMap.GetAlt(x, y) / static_cast<float>(1 << VX_FRACTION);
-        });
-    if (terrainDistance > 0.0f) distance = std::min(distance, terrainDistance);
     worldRay = {origin, direction, distance};
     return distance / rig.UnitsPerMeter();
 }
@@ -276,10 +421,12 @@ static void getXrControllerLaserDistances(const AndroidXrInputFrame& input,
                                           float (&distancesMeters)[2], bool worldVisible,
                                           const Vect3f& skyCenter = Vect3f::ZERO,
                                           float skyRadius = 0.0f,
-                                          terUnitBase* hoveredUnits[2] = nullptr)
+                                          terUnitBase* hoveredUnits[2] = nullptr,
+                                          bool hitUnits[2] = nullptr)
 {
     XrWorldRay worldRays[2];
     if (hoveredUnits) hoveredUnits[0] = hoveredUnits[1] = nullptr;
+    if (hitUnits) hitUnits[0] = hitUnits[1] = false;
     for (unsigned hand = 0; hand < 2; ++hand)
         distancesMeters[hand] = getXrControllerLaserDistance(input.hands[hand],
             rig, centerWorld, uiWidth, uiHeight, worldRays[hand], worldVisible, skyCenter, skyRadius);
@@ -296,11 +443,14 @@ static void getXrControllerLaserDistances(const AndroidXrInputFrame& input,
                 const float previousDistances[2] = {
                     worldRays[0].distance, worldRays[1].distance};
                 xrIntersectUnitRays(*model, worldRays);
-                if (hoveredUnits) {
+                if (hoveredUnits || hitUnits) {
                     for (unsigned hand = 0; hand < 2; ++hand)
-                        if (worldRays[hand].distance < previousDistances[hand])
-                            hoveredUnits[hand] = unit->selectAble() &&
-                                unit->attr()->ID != UNIT_ATTRIBUTE_SQUAD ? unit : nullptr;
+                        if (worldRays[hand].distance < previousDistances[hand]) {
+                            if (hitUnits) hitUnits[hand] = true;
+                            if (hoveredUnits)
+                                hoveredUnits[hand] = unit->selectAble() &&
+                                    unit->attr()->ID != UNIT_ATTRIBUTE_SQUAD ? unit : nullptr;
+                        }
                 }
             }
         }
@@ -1358,6 +1508,15 @@ void GameShell::Show()
             float uiPointerX = 0.0f;
             float uiPointerY = 0.0f;
             bool panelTracked = false;
+            float laserDistances[2]{};
+            terUnitBase* hoveredUnits[2]{};
+            bool laserHitUnits[2]{};
+            Vect2f xrAreaScreenCorners[2][4]{};
+            bool xrAreaEyeVisible[2]{};
+            const bool hoverEnabled = inGameInterfaceActive && xrInput.focused &&
+                !BuildingInstallerInited() &&
+                m_ShellDispatcher.m_nEditRegion == editRegionNone &&
+                !isScriptReelEnabled();
             if (xrInput.focused) {
                 bool panelChanged = false;
                 for (unsigned hand = 0; hand < 2; ++hand) {
@@ -1388,6 +1547,16 @@ void GameShell::Show()
                         panelHits[hand].valid = androidXrHitUiPanel(
                             xrInput.hands[hand], uiWidth, uiHeight,
                             &panelHits[hand].x, &panelHits[hand].y);
+                }
+                const bool worldTriggerPressed =
+                    ((xrInput.hands[0].pressed | xrInput.hands[1].pressed) &
+                     ANDROID_XR_SELECT) != 0;
+                if (inGameInterfaceActive && worldTriggerPressed) {
+                    MTAutoSingleThread logicLock;
+                    float hitDistances[2]{};
+                    getXrControllerLaserDistances(xrInput, *xrCameraRig_, centerWorld,
+                        uiWidth, uiHeight, hitDistances, true, skyCenter, skyRadius,
+                        nullptr, laserHitUnits);
                 }
                 bool xrEditToolCanceled = false;
                 const bool xrCancelPressed =
@@ -1485,6 +1654,11 @@ void GameShell::Show()
                     }
                 }
 
+                if (BuildingInstallerInited() || zeroplastMode ||
+                    m_ShellDispatcher.m_nEditRegion != editRegionNone ||
+                    xrUiPressCaptured_ || !inGameInterfaceActive)
+                    xrAreaSelectHand_ = -1;
+
                 if (BuildingInstallerInited()) {
                     const auto& hand = xrInput.hands[pointerHand];
                     if (!hand.aimValid || xrCancelPressed) {
@@ -1540,7 +1714,95 @@ void GameShell::Show()
                         }
                     }
                 } else {
+                    int areaHandledHand = -1;
+                    if (xrAreaSelectHand_ >= 0) {
+                        areaHandledHand = xrAreaSelectHand_;
+                        const auto& dragInput = xrInput.hands[xrAreaSelectHand_];
+                        if (!dragInput.aimValid || xrCancelPressed ||
+                            !inGameInterfaceActive || xrInput.recentered ||
+                            xrTableCameraLocked ||
+                            universe()->select.hasSelectedNonBuilding() ||
+                            m_ShellDispatcher.m_nEditRegion != editRegionNone) {
+                            xrAreaSelectHand_ = -1;
+                        } else {
+                            const MatXf aim = centerWorld * xrCameraRig_->Pose(
+                                dragInput.aimPosition, dragInput.aimOrientation);
+                            MatXf leftEyeWorld = xrEyeCameras_[0]->GetMatrix();
+                            MatXf rightEyeWorld = xrEyeCameras_[1]->GetMatrix();
+                            leftEyeWorld.invert();
+                            rightEyeWorld.invert();
+                            const Vect3f viewForward =
+                                leftEyeWorld.rot() * Vect3f::K +
+                                rightEyeWorld.rot() * Vect3f::K;
+                            const float neutralOrientation[4] =
+                                {0.0f, 0.0f, 0.0f, 1.0f};
+                            const Mat3f xrReferenceRotation = centerWorld.rot() *
+                                xrCameraRig_->Pose(headPosition,
+                                    neutralOrientation).rot();
+                            const Vect3f xrReferenceUp =
+                                xrReferenceRotation * Vect3f::J;
+                            const Vect3f xrReferenceRight =
+                                xrReferenceRotation * Vect3f::I;
+                            Vect3f right, up, facing;
+                            xrAreaBillboardAxes(viewForward, xrReferenceUp,
+                                                xrReferenceRight,
+                                                right, up, facing);
+                            Vect3f billboardEnd;
+                            if (xrAreaRayOnBillboard(aim, xrAreaSelectStartWorld_,
+                                    facing, std::max(10000.0f, 2.0f * skyRadius),
+                                    billboardEnd))
+                                xrAreaSelectEndWorld_ = billboardEnd;
+                            Vect3f worldCorners[4];
+                            xrAreaBillboardCorners(xrAreaSelectStartWorld_,
+                                xrAreaSelectEndWorld_, right, up, worldCorners);
+                            for (unsigned eye = 0; eye < 2; ++eye)
+                                xrAreaEyeVisible[eye] = xrProjectAreaCorners(
+                                    xrEyeCameras_[eye], xrViews[eye], worldCorners,
+                                    xrAreaScreenCorners[eye]);
+                            if (dragInput.released & ANDROID_XR_SELECT) {
+                                bool dragged = false;
+                                for (unsigned eye = 0; eye < 2; ++eye) {
+                                    if (!xrAreaEyeVisible[eye]) continue;
+                                    const Vect2f& start = xrAreaScreenCorners[eye][0];
+                                    const Vect2f& end = xrAreaScreenCorners[eye][2];
+                                    if (std::abs(end.x - start.x) >= 0.005f ||
+                                        std::abs(end.y - start.y) >= 0.005f)
+                                        dragged = true;
+                                }
+                                if (dragged) {
+                                    universe()->select.selectXrScreenArea(
+                                        [&](const Vect3f& position) {
+                                            for (unsigned eye = 0; eye < 2; ++eye) {
+                                                if (!xrAreaEyeVisible[eye]) continue;
+                                                Vect2f screen;
+                                                if (!projectXrAreaScreenPoint(
+                                                        xrEyeCameras_[eye], xrViews[eye],
+                                                        position, screen)) continue;
+                                                if (xrPointInAreaCorners(screen,
+                                                        xrAreaScreenCorners[eye])) return true;
+                                            }
+                                            return false;
+                                        });
+                                } else {
+                                    const Vect3f rayStart = aim.trans();
+                                    const Vect3f rayFinish =
+                                        aim * Vect3f(0, 0, 5000);
+                                    Vect3f surface;
+                                    const bool surfaceHit = getXrAreaSurfaceHit(
+                                        aim, skyCenter, skyRadius, surface);
+                                    universe()->select.selectUnitRay(rayStart,
+                                        surfaceHit ? surface : rayFinish,
+                                        COMMAND_SELECTED_MODE_NONE);
+                                }
+                                xrAreaSelectHand_ = -1;
+                            } else if ((dragInput.held & ANDROID_XR_SELECT) == 0) {
+                                xrAreaSelectHand_ = -1;
+                            }
+                        }
+                    }
                     for (unsigned handIndex = 0; handIndex < 2; ++handIndex) {
+                        if (static_cast<int>(handIndex) == areaHandledHand ||
+                            xrAreaSelectHand_ >= 0) continue;
                         const auto& input = xrInput.hands[handIndex];
                         if (!input.aimValid) continue;
                         if (xrUiPressCaptured_ && xrUiPressHand_ == static_cast<int>(handIndex))
@@ -1586,6 +1848,38 @@ void GameShell::Show()
                         const bool groundHit = terScene->Trace(rayStart, rayFinish,
                                                                &ground, false, false);
                         const Vect3f rayEnd = groundHit ? ground : rayFinish;
+                        Vect3f surface;
+                        const bool surfaceHit = getXrAreaSurfaceHit(
+                            worldAim, skyCenter, skyRadius, surface);
+                        if (!universe()->select.hasSelectedNonBuilding() &&
+                            !laserHitUnits[handIndex] && surfaceHit &&
+                            !xrTableCameraLocked &&
+                            !_shellIconManager.menuVisible()) {
+                            const Vect3f hitOffset = surface - rayStart;
+                            const float distanceRatio = skyRadius > 0.0f
+                                ? std::clamp(hitOffset.norm() / skyRadius, 0.0f, 1.0f)
+                                : 1.0f;
+                            const float remaining = 1.0f - distanceRatio;
+                            const Vect3f anchor = rayStart +
+                                hitOffset * (0.5f + 0.5f * remaining * remaining * remaining);
+                            Vect2f projected[2];
+                            bool visible[2]{};
+                            for (unsigned eye = 0; eye < 2; ++eye)
+                                visible[eye] = projectXrAreaScreenPoint(
+                                    xrEyeCameras_[eye], xrViews[eye], anchor,
+                                    projected[eye]);
+                            if (visible[0] || visible[1]) {
+                                xrAreaSelectHand_ = static_cast<int>(handIndex);
+                                xrAreaSelectStartWorld_ = xrAreaSelectEndWorld_ = anchor;
+                                for (unsigned eye = 0; eye < 2; ++eye)
+                                    if (visible[eye]) {
+                                        xrAreaEyeVisible[eye] = true;
+                                        for (Vect2f& corner : xrAreaScreenCorners[eye])
+                                            corner = projected[eye];
+                                    }
+                                continue;
+                            }
+                        }
                         if (groundHit && universe()->select.canCommandPointRay(
                                 rayStart, rayEnd)) {
                             universe()->makeCommandSubtle(COMMAND_ID_POINT, ground,
@@ -1598,6 +1892,7 @@ void GameShell::Show()
                 }
             } else {
                 finishXrBrushStroke(true);
+                xrAreaSelectHand_ = -1;
                 if (xrUiPressCaptured_)
                     _shellIconManager.lButtonReset();
                 xrUiPressCaptured_ = false;
@@ -1623,18 +1918,12 @@ void GameShell::Show()
             gbCircleShow->BeginStereoDraw();
             androidXrSetUiPanelVisible(xrInput.focused && xrPanelVisible_ &&
                 panelTracked && _shellIconManager.interfaceShowFlag());
-            float laserDistances[2]{};
-            terUnitBase* hoveredUnits[2]{};
-            const bool hoverEnabled = inGameInterfaceActive && xrInput.focused &&
-                !BuildingInstallerInited() &&
-                m_ShellDispatcher.m_nEditRegion == editRegionNone &&
-                !isScriptReelEnabled();
             {
                 MTAutoSingleThread logicLock;
                 if (inGameInterfaceActive)
                     getXrControllerLaserDistances(xrInput, *xrCameraRig_, centerWorld,
-                        uiWidth, uiHeight, laserDistances, true, skyCenter, skyRadius,
-                        hoverEnabled ? hoveredUnits : nullptr);
+                        uiWidth, uiHeight, laserDistances, true, skyCenter,
+                        skyRadius, hoverEnabled ? hoveredUnits : nullptr);
                 // PC hover owns one mark. Prefer the right controller when
                 // both beams hit units, and use the left when it misses.
                 _pUnitHover = hoverEnabled ?
@@ -1654,6 +1943,11 @@ void GameShell::Show()
                     universe()->ShowInfo(false);
                 showWays();
                 if (inGameInterfaceActive) {
+                    if (xrAreaSelectHand_ >= 0 && xrAreaEyeVisible[eye]) {
+                        drawXrAreaSelection(terRenderDevice, camera,
+                                            xrAreaScreenCorners[eye],
+                                            xrViews[eye].width, xrViews[eye].height);
+                    }
                     for (unsigned hand = 0; hand < 2; ++hand) {
                         drawXrControllerLaser(terRenderDevice, camera,
                             xrCameraRig_->UnitsPerMeter(), xrViews[eye],
@@ -1674,6 +1968,7 @@ void GameShell::Show()
             return;
         }
         if (xrCameraRig_) xrCameraRig_->ResetGripDrag();
+        xrAreaSelectHand_ = -1;
         androidXrClearListenerView();
         {
             MTAutoSingleThread logicLock;

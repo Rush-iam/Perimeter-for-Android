@@ -352,6 +352,9 @@ private:
     int xrUiPressHand_ = -1;
     unsigned xrZeroplastToolHand_ = 1; // Keep the right hand as the fallback.
     int xrZeroplastHand_ = -1;
+    int xrAreaSelectHand_ = -1;
+    Vect3f xrAreaSelectStartWorld_ = Vect3f::ZERO;
+    Vect3f xrAreaSelectEndWorld_ = Vect3f::ZERO;
 #endif
 
     float game_speed;

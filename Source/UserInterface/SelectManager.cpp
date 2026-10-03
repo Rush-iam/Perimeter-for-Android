@@ -200,6 +200,13 @@ bool cSelectManager::canCommandPointRay(const Vect3f& start, const Vect3f& finis
            findInSelection(nearest) != SelectGroupLists[CURRENT_SELECTION_GROUP_NUMBER].end();
 }
 
+bool cSelectManager::hasSelectedNonBuilding() {
+    CSELECT_AUTOLOCK();
+    for (terUnitBase* unit : SelectGroupLists[CURRENT_SELECTION_GROUP_NUMBER])
+        if (!unit->isBuilding()) return true;
+    return false;
+}
+
 bool cSelectManager::selectUnitRay(const Vect3f& start, const Vect3f& finish, int mode) {
     if (!player) return false;
     cancelActions();
@@ -216,6 +223,26 @@ bool cSelectManager::selectUnitRay(const Vect3f& start, const Vect3f& finish, in
         clear();
     }
     return false;
+}
+
+void cSelectManager::selectXrScreenArea(
+    const std::function<bool(const Vect3f&)>& contains) {
+    if (!player) return;
+    cancelActions();
+    CSELECT_AUTOLOCK();
+    clear(TEMP_SELECTION_GROUP_NUMBER);
+    clear();
+    {
+        CUNITS_LOCK(player);
+        for (terUnitBase* unit : player->units()) {
+            if (!unit->alive() || !unit->selectAble() ||
+                unit->attr()->ID == UNIT_ATTRIBUTE_SQUAD) continue;
+            if (contains(unit->position()))
+                SelectGroupLists[CURRENT_SELECTION_GROUP_NUMBER].push_back(unit);
+        }
+    }
+    filterSelection();
+    selectCurrentSelection();
 }
 #endif
 

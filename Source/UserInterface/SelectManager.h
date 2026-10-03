@@ -1,6 +1,10 @@
 #pragma once
 #include "GenericControls.h"
 
+#if defined(ANDROID_XR)
+#include <functional>
+#endif
+
 class cSelectManager
 {
 public:
@@ -17,6 +21,8 @@ public:
 	// Resolve and select under the existing selection -> player-units lock order.
 	bool selectUnitRay(const Vect3f& start, const Vect3f& finish, int mode);
 	bool canCommandPointRay(const Vect3f& start, const Vect3f& finish);
+	bool hasSelectedNonBuilding();
+	void selectXrScreenArea(const std::function<bool(const Vect3f&)>& contains);
 #endif
 	void grade(terUnitBase* from, terUnitBase* to);
 	void allLikeUnitToSelection(terUnitBase* p);
