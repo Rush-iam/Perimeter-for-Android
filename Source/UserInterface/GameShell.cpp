@@ -2242,7 +2242,7 @@ void GameShell::Show()
                 (xrViews[0].position[1] + xrViews[1].position[1]) * 0.5f,
                 (xrViews[0].position[2] + xrViews[1].position[2]) * 0.5f);
             // Center chat and mission subtitles 20 degrees below the head's forward direction.
-            constexpr float overlayDistanceMeters = 1.5f;
+            const float overlayDistanceMeters = xrCameraRig_->SubtitleDistanceMeters();
             const Vect3f overlayAnchor = headCenter + rotateXrVector(
                 xrViews[0].orientation,
                 Vect3f(0.0f, -overlayDistanceMeters * std::tan(0.3490658504f),
