@@ -344,11 +344,13 @@ private:
     XrCameraRig* xrCameraRig_ = nullptr;
     std::atomic<int> xrScriptedCameraAlignmentMs_{-1};
     float xrBuildAngle_ = 0.0f;
+    unsigned xrBuildHand_ = 1; // Keep the right hand as the fallback.
     bool xrPanelVisible_ = true;
     unsigned xrPanelHand_ = 0; // Left hand by default.
     bool xrMenuPanelPoseAnchored_ = false;
     bool xrUiPressCaptured_ = false;
     int xrUiPressHand_ = -1;
+    unsigned xrZeroplastToolHand_ = 1; // Keep the right hand as the fallback.
     int xrZeroplastHand_ = -1;
 #endif
 

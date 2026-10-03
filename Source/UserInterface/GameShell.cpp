@@ -1388,9 +1388,11 @@ void GameShell::Show()
                             &panelHits[hand].x, &panelHits[hand].y);
                 }
                 bool xrEditToolCanceled = false;
-                if (m_ShellDispatcher.m_nEditRegion != editRegionNone &&
+                const bool xrCancelPressed =
                     ((xrInput.hands[0].pressed | xrInput.hands[1].pressed) &
-                     ANDROID_XR_CANCEL)) {
+                     ANDROID_XR_CANCEL) != 0;
+                if (m_ShellDispatcher.m_nEditRegion != editRegionNone &&
+                    xrCancelPressed) {
                     xrZeroplastHand_ = -1;
                     CancelEditWorkarea();
                     xrEditToolCanceled = true;
@@ -1401,16 +1403,22 @@ void GameShell::Show()
                     !xrTableCameraLocked && !isPaused() &&
                     _shellIconManager.interfaceShowFlag();
                 // A tool switch already submits through CancelEditWorkarea.
-                if (!zeroplastMode)
+                if (!zeroplastMode) {
                     xrZeroplastHand_ = -1;
-                else if (!zeroplastControlsEnabled || xrInput.recentered)
+                    if (CurrentMission.gameType_ == GT_PLAY_RELL ||
+                        m_ShellDispatcher.m_nEditRegion != editRegion1)
+                        xrZeroplastToolHand_ = 1;
+                } else if (!zeroplastControlsEnabled || xrInput.recentered) {
                     finishXrBrushStroke();
+                }
                 unsigned pointerHand = chooseXrPointerHand(xrInput, panelHits,
                     xrUiPressCaptured_ ? xrUiPressHand_ : -1);
                 if (xrZeroplastHand_ >= 0)
                     pointerHand = static_cast<unsigned>(xrZeroplastHand_);
-                else if (BuildingInstallerInited() || (zeroplastMode && !xrUiPressCaptured_))
-                    pointerHand = xrInput.hands[1].aimValid ? 1u : 0u;
+                else if (BuildingInstallerInited())
+                    pointerHand = xrBuildHand_;
+                else if (zeroplastMode && !xrUiPressCaptured_)
+                    pointerHand = xrZeroplastToolHand_;
                 Vect2f pointerPosition = mousePosition_;
                 const bool pointerOverUi = panelHits[pointerHand].valid &&
                     !BuildingInstallerInited() && xrZeroplastHand_ < 0;
@@ -1460,6 +1468,11 @@ void GameShell::Show()
                             xrUiPressHand_ = -1;
                             return;
                         }
+                        if (BuildingInstallerInited())
+                            xrBuildHand_ = static_cast<unsigned>(xrUiPressHand_);
+                        if (m_ShellDispatcher.m_nEditRegion == editRegion1 &&
+                            CurrentMission.gameType_ != GT_PLAY_RELL)
+                            xrZeroplastToolHand_ = static_cast<unsigned>(xrUiPressHand_);
                         _shellIconManager.lButtonReset();
                         xrUiPressCaptured_ = false;
                         xrUiPressHand_ = -1;
@@ -1472,7 +1485,7 @@ void GameShell::Show()
 
                 if (BuildingInstallerInited()) {
                     const auto& hand = xrInput.hands[pointerHand];
-                    if (!hand.aimValid || (hand.pressed & ANDROID_XR_CANCEL)) {
+                    if (!hand.aimValid || xrCancelPressed) {
                         BuildingInstaller->CancelObject();
                         xrBuildAngle_ = 0.0f;
                     } else if (panelHits[pointerHand].valid) {
@@ -1499,7 +1512,10 @@ void GameShell::Show()
                 } else if (zeroplastControlsEnabled && !xrUiPressCaptured_ &&
                            (xrZeroplastHand_ >= 0 || !panelHits[pointerHand].valid)) {
                     const auto& hand = xrInput.hands[pointerHand];
-                    if (!hand.aimValid || (hand.pressed & ANDROID_XR_CANCEL)) {
+                    if (!hand.aimValid) {
+                        xrZeroplastHand_ = -1;
+                        finishXrBrushStroke();
+                    } else if (hand.pressed & ANDROID_XR_CANCEL) {
                         xrZeroplastHand_ = -1;
                         CancelEditWorkarea();
                     } else {
@@ -1537,6 +1553,11 @@ void GameShell::Show()
                                 if (!uiHandled)
                                     m_ShellDispatcher.OnLButtonDown(x, y);
                                 if (endXrFrameIfMissionChanged()) return;
+                                if (BuildingInstallerInited())
+                                    xrBuildHand_ = handIndex;
+                                if (m_ShellDispatcher.m_nEditRegion == editRegion1 &&
+                                    CurrentMission.gameType_ != GT_PLAY_RELL)
+                                    xrZeroplastToolHand_ = handIndex;
                                 xrUiPressCaptured_ = true;
                                 xrUiPressHand_ = static_cast<int>(handIndex);
                             }
@@ -1578,6 +1599,8 @@ void GameShell::Show()
                 xrUiPressHand_ = -1;
             }
 
+            if (!BuildingInstallerInited())
+                xrBuildHand_ = 1;
             if (endXrFrameIfMissionChanged()) return;
             // Refresh selection after XR input and model interpolation, so its
             // circles appear in the same frame as the selected unit's bar.
@@ -1655,6 +1678,7 @@ void GameShell::Show()
             !androidXrIsFocused()) {
             BuildingInstaller->CancelObject();
             xrBuildAngle_ = 0.0f;
+            xrBuildHand_ = 1;
         }
         if (androidXrSessionActive() && !androidXrIsFocused()) {
             if (xrUiPressCaptured_)
