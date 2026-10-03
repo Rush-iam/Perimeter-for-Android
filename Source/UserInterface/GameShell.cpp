@@ -54,6 +54,7 @@
 #include "DrawBuffer.h"
 #include "VertexFormat.h"
 #include <cmath>
+#include <limits>
 #endif
 #include <cstring>
 #endif
@@ -520,6 +521,265 @@ static bool drawXrEyeViews(cInterfaceRenderDevice* renderer,
         androidXrUnbindEye(renderer);
     }
     return true;
+}
+
+static unsigned clipXrScreenBoundary(const Vect2f* input, unsigned inputSize,
+                                     Vect2f* output, unsigned axis,
+                                     float edge, bool keepGreater)
+{
+    if (!inputSize) return 0;
+    unsigned outputSize = 0;
+    const auto coordinate = [axis](const Vect2f& point) {
+        return axis == 0 ? point.x : point.y;
+    };
+    const auto inside = [&](const Vect2f& point) {
+        return keepGreater ? coordinate(point) >= edge : coordinate(point) <= edge;
+    };
+    Vect2f previous = input[inputSize - 1];
+    bool previousInside = inside(previous);
+    for (unsigned i = 0; i < inputSize; ++i) {
+        const Vect2f current = input[i];
+        const bool currentInside = inside(current);
+        if (previousInside != currentInside) {
+            const float t = (edge - coordinate(previous)) /
+                (coordinate(current) - coordinate(previous));
+            output[outputSize++] = previous + (current - previous) * t;
+        }
+        if (currentInside) output[outputSize++] = current;
+        previous = current;
+        previousInside = currentInside;
+    }
+    return outputSize;
+}
+
+static bool projectXrFrameAperture(cCamera* camera,
+                                   const AndroidXrEyeView& view,
+                                   const Vect3f (&world)[4],
+                                   Vect2f (&screen)[16], unsigned& screenSize)
+{
+    if (!view.width || !view.height) return false;
+    Vect3f clippedWorld[8];
+    unsigned clippedWorldSize = 0;
+    const float nearDepth = camera->GetZPlane().x * 1.01f;
+    for (unsigned i = 0; i < 4; ++i) {
+        const Vect3f& previous = world[(i + 3) % 4];
+        const Vect3f& current = world[i];
+        Vect3f previousEye, currentEye;
+        camera->GetMatrix().xformPoint(previous, previousEye);
+        camera->GetMatrix().xformPoint(current, currentEye);
+        const bool previousInside = previousEye.z >= nearDepth;
+        const bool currentInside = currentEye.z >= nearDepth;
+        if (previousInside != currentInside) {
+            const float t = (nearDepth - previousEye.z) /
+                (currentEye.z - previousEye.z);
+            clippedWorld[clippedWorldSize++] = previous +
+                (current - previous) * t;
+        }
+        if (currentInside) clippedWorld[clippedWorldSize++] = current;
+    }
+    if (clippedWorldSize < 3) return false;
+
+    Vect2f projected[16];
+    for (unsigned i = 0; i < clippedWorldSize; ++i) {
+        Vect3f pixel;
+        camera->ConvertorWorldToViewPort(&clippedWorld[i], nullptr, &pixel);
+        projected[i].set(pixel.x, pixel.y);
+        if (!std::isfinite(pixel.x) || !std::isfinite(pixel.y)) return false;
+    }
+    Vect2f scratch[16];
+    unsigned count = clipXrScreenBoundary(projected, clippedWorldSize, scratch,
+                                          0, 0.0f, true);
+    count = clipXrScreenBoundary(scratch, count, projected, 0,
+                                 static_cast<float>(view.width), false);
+    count = clipXrScreenBoundary(projected, count, scratch, 1, 0.0f, true);
+    count = clipXrScreenBoundary(scratch, count, projected, 1,
+                                 static_cast<float>(view.height), false);
+    screenSize = count;
+    for (unsigned i = 0; i < count; ++i) screen[i] = projected[i];
+    return count >= 3;
+}
+
+static void drawXrScreenQuads(cInterfaceRenderDevice* renderer,
+                              const Vect2f (&quads)[20][4], unsigned quadCount,
+                              uint8_t opacity)
+{
+    if (!quadCount) return;
+    renderer->SetNoMaterial(ALPHA_BLEND);
+    renderer->UseOrthographicProjection();
+    const uint32_t previousCullMode = renderer->GetRenderState(RS_CULLMODE);
+    renderer->SetRenderState(RS_CULLMODE, CULL_NONE);
+    auto buffer = renderer->GetDrawBuffer(sVertexXYZDT1::fmt, PT_TRIANGLES);
+    const uint32_t black = renderer->ConvertColor(sColor4c(0, 0, 0, opacity));
+    for (unsigned quad = 0; quad < quadCount; ++quad) {
+        sVertexXYZDT1* vertices = buffer->LockQuad<sVertexXYZDT1>(1);
+        for (unsigned corner = 0; corner < 4; ++corner) {
+            auto& vertex = vertices[corner];
+            vertex.x = quads[quad][corner].x;
+            vertex.y = quads[quad][corner].y;
+            vertex.z = 0.0f;
+            vertex.diffuse = black;
+            vertex.u1() = 0.0f;
+            vertex.v1() = 0.0f;
+        }
+        buffer->Unlock();
+    }
+    buffer->Draw();
+    renderer->SetRenderState(RS_CULLMODE, previousCullMode);
+}
+
+static float xrScreenEdgeX(const Vect2f& a, const Vect2f& b, float y)
+{
+    if (std::abs(b.y - a.y) < 1.0e-6f) return std::min(a.x, b.x);
+    return a.x + (b.x - a.x) * ((y - a.y) / (b.y - a.y));
+}
+
+static void appendXrMaskQuad(Vect2f (&masks)[20][4], unsigned& maskCount,
+                             const Vect2f (&quad)[4])
+{
+    for (unsigned i = 0; i < 4; ++i) masks[maskCount][i] = quad[i];
+    ++maskCount;
+}
+
+static void drawXrScreenComplement(cInterfaceRenderDevice* renderer,
+                                  const Vect2f* aperture, unsigned apertureSize,
+                                  unsigned width, unsigned height,
+                                  uint8_t opacity)
+{
+    Vect2f masks[20][4];
+    unsigned maskCount = 0;
+    if (apertureSize < 3) {
+        const Vect2f fullScreen[4] = {
+            Vect2f(0, 0), Vect2f(0, static_cast<float>(height)),
+            Vect2f(static_cast<float>(width), 0),
+            Vect2f(static_cast<float>(width), static_cast<float>(height))};
+        appendXrMaskQuad(masks, maskCount, fullScreen);
+        drawXrScreenQuads(renderer, masks, maskCount, opacity);
+        return;
+    }
+
+    float breaks[18] = {0.0f, static_cast<float>(height)};
+    unsigned breakCount = 2;
+    for (unsigned i = 0; i < apertureSize; ++i)
+        breaks[breakCount++] = aperture[i].y;
+    std::sort(breaks, breaks + breakCount);
+    unsigned uniqueCount = 0;
+    for (unsigned i = 0; i < breakCount; ++i)
+        if (!uniqueCount || breaks[i] - breaks[uniqueCount - 1] > 0.01f)
+            breaks[uniqueCount++] = breaks[i];
+
+    for (unsigned band = 0; band + 1 < uniqueCount; ++band) {
+        const float y0 = breaks[band];
+        const float y1 = breaks[band + 1];
+        if (y1 - y0 < 0.01f) continue;
+        const float middle = (y0 + y1) * 0.5f;
+        int leftEdge = -1, rightEdge = -1;
+        float leftX = std::numeric_limits<float>::max();
+        float rightX = std::numeric_limits<float>::lowest();
+        for (unsigned i = 0; i < apertureSize; ++i) {
+            const Vect2f& a = aperture[i];
+            const Vect2f& b = aperture[(i + 1) % apertureSize];
+            if ((middle < std::min(a.y, b.y)) ||
+                (middle >= std::max(a.y, b.y))) continue;
+            const float x = xrScreenEdgeX(a, b, middle);
+            if (x < leftX) { leftX = x; leftEdge = static_cast<int>(i); }
+            if (x > rightX) { rightX = x; rightEdge = static_cast<int>(i); }
+        }
+        if (leftEdge < 0 || rightEdge < 0) {
+            const Vect2f fullBand[4] = {
+                Vect2f(0, y0), Vect2f(0, y1),
+                Vect2f(static_cast<float>(width), y0),
+                Vect2f(static_cast<float>(width), y1)};
+            appendXrMaskQuad(masks, maskCount, fullBand);
+            continue;
+        }
+        const Vect2f& leftA = aperture[leftEdge];
+        const Vect2f& leftB = aperture[(leftEdge + 1) % apertureSize];
+        const Vect2f& rightA = aperture[rightEdge];
+        const Vect2f& rightB = aperture[(rightEdge + 1) % apertureSize];
+        const float left0 = std::clamp(xrScreenEdgeX(leftA, leftB, y0),
+                                       0.0f, static_cast<float>(width));
+        const float left1 = std::clamp(xrScreenEdgeX(leftA, leftB, y1),
+                                       0.0f, static_cast<float>(width));
+        const float right0 = std::clamp(xrScreenEdgeX(rightA, rightB, y0),
+                                        0.0f, static_cast<float>(width));
+        const float right1 = std::clamp(xrScreenEdgeX(rightA, rightB, y1),
+                                        0.0f, static_cast<float>(width));
+        const Vect2f leftMask[4] = {
+            Vect2f(0, y0), Vect2f(0, y1),
+            Vect2f(left0, y0), Vect2f(left1, y1)};
+        const Vect2f rightMask[4] = {
+            Vect2f(right0, y0), Vect2f(right1, y1),
+            Vect2f(static_cast<float>(width), y0),
+            Vect2f(static_cast<float>(width), y1)};
+        appendXrMaskQuad(masks, maskCount, leftMask);
+        appendXrMaskQuad(masks, maskCount, rightMask);
+    }
+    drawXrScreenQuads(renderer, masks, maskCount, opacity);
+}
+
+static void drawXrLetterbox(cInterfaceRenderDevice* renderer,
+                            cCamera* gameCamera,
+                            cCamera* eyeCamera,
+                            const AndroidXrEyeView& eye,
+                            const AndroidXrEyeView views[2],
+                            float unitsPerMeter, float amount)
+{
+    if (amount <= 0.0f || !eye.width || !eye.height) return;
+    constexpr float aspect21x9 = 21.0f / 9.0f;
+    const float halfWidthTangent = std::max({
+        -std::tan(views[0].fov[0]), std::tan(views[0].fov[1]),
+        -std::tan(views[1].fov[0]), std::tan(views[1].fov[1])});
+    const float halfHeightTangent = std::max({
+        -std::tan(views[0].fov[2]), std::tan(views[0].fov[3]),
+        -std::tan(views[1].fov[2]), std::tan(views[1].fov[3])});
+    const float horizontalFovTangentSpan = std::max(
+        std::tan(views[0].fov[1]) - std::tan(views[0].fov[0]),
+        std::tan(views[1].fov[1]) - std::tan(views[1].fov[0]));
+    const float verticalFovTangentSpan = std::max(
+        std::tan(views[0].fov[3]) - std::tan(views[0].fov[2]),
+        std::tan(views[1].fov[3]) - std::tan(views[1].fov[2]));
+    const float depth = unitsPerMeter * 2.0f;
+    const float openingHalfWidth = depth * halfWidthTangent;
+    const float openingHalfHeight = openingHalfWidth / aspect21x9;
+    constexpr float viewOverscan = 1.1f;
+    const float expandedHalfHeight = std::max(
+        openingHalfHeight, depth * halfHeightTangent) * viewOverscan;
+    // Match each edge's travel in eye-buffer pixels per second. The tangent
+    // spans account for each axis' FOV and the eye target's pixel dimensions.
+    const float horizontalTangentPerVerticalTangent =
+        horizontalFovTangentSpan > 0.0f && verticalFovTangentSpan > 0.0f &&
+        eye.width > 0
+            ? static_cast<float>(eye.height) * horizontalFovTangentSpan /
+                (static_cast<float>(eye.width) * verticalFovTangentSpan)
+            : 1.0f;
+    const float expandedHalfWidth = openingHalfWidth +
+        (expandedHalfHeight - openingHalfHeight) *
+            horizontalTangentPerVerticalTangent;
+    const float holeHalfWidth = expandedHalfWidth - amount *
+        (expandedHalfWidth - openingHalfWidth);
+    const float holeHalfHeight = expandedHalfHeight - amount *
+        (expandedHalfHeight - openingHalfHeight);
+    if (openingHalfWidth <= 0.0f || holeHalfHeight <= 0.0f) return;
+    const uint8_t opacity = static_cast<uint8_t>(std::clamp(
+        xm::round(amount * 255.0f), 0, 255));
+
+    MatXf cameraToWorld = gameCamera->GetMatrix();
+    cameraToWorld.invert();
+    Vect3f apertureWorld[4];
+    apertureWorld[0] = cameraToWorld * Vect3f(-holeHalfWidth, -holeHalfHeight, depth);
+    apertureWorld[1] = cameraToWorld * Vect3f(-holeHalfWidth, holeHalfHeight, depth);
+    apertureWorld[2] = cameraToWorld * Vect3f(holeHalfWidth, holeHalfHeight, depth);
+    apertureWorld[3] = cameraToWorld * Vect3f(holeHalfWidth, -holeHalfHeight, depth);
+    renderer->SetDrawTransform(eyeCamera);
+    Vect2f aperture[16];
+    unsigned apertureSize = 0;
+    if (projectXrFrameAperture(eyeCamera, eye, apertureWorld,
+                               aperture, apertureSize))
+        drawXrScreenComplement(renderer, aperture, apertureSize,
+                               eye.width, eye.height, opacity);
+    else
+        drawXrScreenComplement(renderer, nullptr, 0, eye.width, eye.height,
+                               opacity);
 }
 
 static bool drawXrUiPanel(cInterfaceRenderDevice* renderer,
@@ -1415,6 +1675,8 @@ void GameShell::Show()
             float headPosition[3]{};
             getXrHeadPosition(xrViews, headPosition);
             const float deltaSeconds = frame_time.delta() * 0.001f;
+            const bool inGameInterfaceActive = _shellIconManager.IsInterface() &&
+                _shellIconManager.interfaceShowFlag();
             // XR tabletop navigation is locked during scripted scenes and
             // while the camera is tracking a unit, matching the non-XR view.
             const bool xrTableCameraLocked = isCutSceneMode() ||
@@ -1423,7 +1685,8 @@ void GameShell::Show()
                 xrCameraRig_->IsAligningToScriptedCamera();
             // Honor runtime tracking recenter above, but preserve the authored
             // camera angles and interpolation points while controls are locked.
-            if (xrInput.recentered && !xrTableCameraLocked)
+            if (xrInput.recentered && inGameInterfaceActive &&
+                !xrTableCameraLocked)
                 terCamera->recenterOrientation();
             // A visible mission menu owns the sticks instead of the table camera.
             const bool xrTableControlsEnabled =
@@ -1431,7 +1694,7 @@ void GameShell::Show()
                 !_shellIconManager.menuVisible();
             MatXf centerWorld = centerCamera->GetMatrix();
             centerWorld.invert();
-            if (xrInput.recentered)
+            if (xrInput.recentered && inGameInterfaceActive)
                 xrCameraRig_->ResetTilt(centerWorld, headPosition);
             const bool gripControlsEnabled =
                 xrTableControlsEnabled && !xrInput.recentered;
@@ -1499,8 +1762,17 @@ void GameShell::Show()
             const unsigned uiHeight = static_cast<unsigned>(terRenderDevice->GetSizeY());
             androidXrPrepareUiPanel(uiWidth, uiHeight);
             // The visibility flag starts true before the in-game desktop exists.
-            const bool inGameInterfaceActive = _shellIconManager.IsInterface() &&
-                _shellIconManager.interfaceShowFlag();
+            static float xrLetterboxAmount = 1.0f;
+            static bool xrInterfaceWasActive = false;
+            if (!inGameInterfaceActive) {
+                xrLetterboxAmount = 1.0f;
+            } else if (!xrInterfaceWasActive) {
+                xrLetterboxAmount = 1.0f;
+            } else {
+                xrLetterboxAmount = std::max(0.0f, xrLetterboxAmount -
+                    deltaSeconds / 5.0f);
+            }
+            xrInterfaceWasActive = inGameInterfaceActive;
 
             bool uiPointerVisible = false;
             Vect3f xrBrushPosition = Vect3f::ZERO;
@@ -2023,6 +2295,11 @@ void GameShell::Show()
                         }
                     }
                 }
+                if (xrLetterboxAmount > 0.0f)
+                    drawXrLetterbox(terRenderDevice, centerCamera, camera,
+                                    xrViews[eye], xrViews,
+                                    xrCameraRig_->UnitsPerMeter(),
+                                    xrLetterboxAmount);
             });
             gbCircleShow->EndStereoDraw();
             if (rendered && xrInput.focused && xrPanelVisible_ && panelTracked &&
