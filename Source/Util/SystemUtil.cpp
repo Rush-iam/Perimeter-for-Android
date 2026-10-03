@@ -514,6 +514,7 @@ sKey::sKey() {
 /////////////////////////////////////////////////////////////////////////////////
 
 bool create_directories(const std::string& path, std::error_code* error) {
+    if (error) error->clear();
     // Content lookups may return absolute paths. Preserve the root instead of
     // treating the leading separator as an empty directory to create.
     const std::string native_path = convert_path_native(path);
@@ -548,36 +549,40 @@ bool create_directories(const std::string& path, std::error_code* error) {
             continue;
         }
         
-        //Create dir since doesn't exist
         std::filesystem::path current_fs = std::filesystem::u8path(current);
-        bool created;
-        if (error) {
-            created = std::filesystem::create_directory(current_fs, *error);
-            if (*error) {
-                fprintf(stderr, "create_directories: Error creating path '%s' - %d - %d - %s", current.c_str(), created, error->value(), error->message().c_str());
-            }
-        } else {
-            created = std::filesystem::create_directory(current_fs);
+        // The resource index does not cover every existing filesystem parent.
+        std::error_code directory_error;
+        if (std::filesystem::is_directory(current_fs, directory_error)) continue;
+        directory_error.clear();
+        const bool created = std::filesystem::create_directory(current_fs, directory_error);
+        if (directory_error) {
+#if defined(__ANDROID__)
+            // Shared-storage ancestors may permit traversal but deny stat.
+            // mkdir then reports EEXIST; validate the accessible final directory
+            // below instead of rejecting these ancestors. A file collision will
+            // still fail when creating a child or checking the final directory.
+            if (directory_error == std::errc::file_exists && i + 1 < size) continue;
+#endif
+            if (error) *error = directory_error;
+            fprintf(stderr, "create_directories: Error creating path '%s' - %d - %s\n",
+                    current.c_str(), directory_error.value(), directory_error.message().c_str());
+            return false;
         }
         
         //Add this new dir to paths
-        xassert(created);
         if (created) {
             scan_resource_paths(current);            
-        } else {
-            fprintf(stderr, "create_directories: Path was not created '%s'", current.c_str());
         }
     }
     xassert(part.empty());
     std::filesystem::path current_fs = std::filesystem::u8path(current);
-    bool result = std::filesystem::is_directory(current_fs);
+    std::error_code directory_error;
+    const bool result = std::filesystem::is_directory(current_fs, directory_error);
+    if (error) *error = directory_error;
     if (result) {
         scan_resource_paths(current);
-        if (error && *error) {
-            fprintf(stderr, "create_directories: Got error but path seems fine '%s' - %d - %s", current.c_str(), error->value(), error->message().c_str());
-            error->clear();
-        }
     } else {
+        if (error && !*error) *error = std::make_error_code(std::errc::not_a_directory);
         fprintf(stderr, "create_directories: Path is not dir '%s'", current.c_str());
     }
     return result;
