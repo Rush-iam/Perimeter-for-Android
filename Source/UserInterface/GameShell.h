@@ -342,6 +342,7 @@ private:
 #if defined(ANDROID_XR)
     cCamera* xrEyeCameras_[2] = {nullptr, nullptr};
     XrCameraRig* xrCameraRig_ = nullptr;
+    float xrLetterboxAmount_ = 0.0f;
     std::atomic<int> xrScriptedCameraAlignmentMs_{-1};
     float xrBuildAngle_ = 0.0f;
     unsigned xrBuildHand_ = 1; // Keep the right hand as the fallback.

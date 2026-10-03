@@ -1207,6 +1207,9 @@ void GameShell::destroyNetClient() {
 
 void GameShell::GameStart(const MissionDescription& mission)
 {
+#if defined(ANDROID_XR)
+    xrLetterboxAmount_ = 0.0f;
+#endif
     mission.PrintInfo();
     
 	_WaitCursor();
@@ -1368,6 +1371,7 @@ void GameShell::GameStart(const MissionDescription& mission)
 void GameShell::GameClose()
 {
 #if defined(ANDROID_XR)
+    xrLetterboxAmount_ = 0.0f;
     xrWorkareaPressHand_ = -1;
     xrMenuPanelPoseAnchored_ = false;
     // The menu mesh uses the default rig scale and origin. Its UI panel is
@@ -1769,18 +1773,14 @@ void GameShell::Show()
             const unsigned uiWidth = static_cast<unsigned>(terRenderDevice->GetSizeX());
             const unsigned uiHeight = static_cast<unsigned>(terRenderDevice->GetSizeY());
             androidXrPrepareUiPanel(uiWidth, uiHeight);
-            // The visibility flag starts true before the in-game desktop exists.
-            static float xrLetterboxAmount = 1.0f;
-            static bool xrInterfaceWasActive = false;
-            if (!inGameInterfaceActive) {
-                xrLetterboxAmount = 1.0f;
-            } else if (!xrInterfaceWasActive) {
-                xrLetterboxAmount = 1.0f;
+            // Only an interface-disabled cutscene closes the blinds. A missing
+            // desktop at mission startup must not trigger an opening animation.
+            if (isCutSceneMode() && !inGameInterfaceActive) {
+                xrLetterboxAmount_ = 1.0f;
             } else {
-                xrLetterboxAmount = std::max(0.0f, xrLetterboxAmount -
-                    deltaSeconds / 5.0f);
+                xrLetterboxAmount_ = std::max(0.0f, xrLetterboxAmount_ -
+                    deltaSeconds / 3.0f);
             }
-            xrInterfaceWasActive = inGameInterfaceActive;
 
             bool uiPointerVisible = false;
             Vect3f xrBrushPosition = Vect3f::ZERO;
@@ -2337,11 +2337,11 @@ void GameShell::Show()
                         }
                     }
                 }
-                if (xrLetterboxAmount > 0.0f)
+                if (xrLetterboxAmount_ > 0.0f)
                     drawXrLetterbox(terRenderDevice, centerCamera, camera,
                                     xrViews[eye], xrViews,
                                     xrCameraRig_->UnitsPerMeter(),
-                                    xrLetterboxAmount);
+                                    xrLetterboxAmount_);
             });
             gbCircleShow->EndStereoDraw();
             if (rendered && xrInput.focused && xrPanelVisible_ && panelTracked &&
