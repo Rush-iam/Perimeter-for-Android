@@ -1348,6 +1348,9 @@ void GameShell::Show()
             const unsigned uiWidth = static_cast<unsigned>(terRenderDevice->GetSizeX());
             const unsigned uiHeight = static_cast<unsigned>(terRenderDevice->GetSizeY());
             androidXrPrepareUiPanel(uiWidth, uiHeight);
+            // The visibility flag starts true before the in-game desktop exists.
+            const bool inGameInterfaceActive = _shellIconManager.IsInterface() &&
+                _shellIconManager.interfaceShowFlag();
 
             bool uiPointerVisible = false;
             Vect3f xrBrushPosition = Vect3f::ZERO;
@@ -1372,7 +1375,7 @@ void GameShell::Show()
                     xrInput.hands[xrPanelHand_], xrPanelHand_);
                 if (xrUiPressCaptured_ &&
                     (panelChanged || !xrPanelVisible_ || !panelTracked ||
-                     !_shellIconManager.interfaceShowFlag())) {
+                     !inGameInterfaceActive)) {
                     _shellIconManager.lButtonReset();
                     xrUiPressCaptured_ = false;
                     xrUiPressHand_ = -1;
@@ -1380,8 +1383,7 @@ void GameShell::Show()
                 androidXrSetUiPanelVisible(xrPanelVisible_ && panelTracked &&
                     _shellIconManager.interfaceShowFlag());
                 XrPanelHit panelHits[2];
-                if (xrPanelVisible_ && panelTracked &&
-                    _shellIconManager.interfaceShowFlag()) {
+                if (xrPanelVisible_ && panelTracked && inGameInterfaceActive) {
                     for (unsigned hand = 0; hand < 2; ++hand)
                         panelHits[hand].valid = androidXrHitUiPanel(
                             xrInput.hands[hand], uiWidth, uiHeight,
@@ -1400,8 +1402,7 @@ void GameShell::Show()
                 const bool zeroplastMode = m_ShellDispatcher.m_nEditRegion == editRegion1 &&
                     CurrentMission.gameType_ != GT_PLAY_RELL;
                 const bool zeroplastControlsEnabled = zeroplastMode &&
-                    !xrTableCameraLocked && !isPaused() &&
-                    _shellIconManager.interfaceShowFlag();
+                    inGameInterfaceActive && !xrTableCameraLocked && !isPaused();
                 // A tool switch already submits through CancelEditWorkarea.
                 if (!zeroplastMode) {
                     xrZeroplastHand_ = -1;
@@ -1421,7 +1422,8 @@ void GameShell::Show()
                     pointerHand = xrZeroplastToolHand_;
                 Vect2f pointerPosition = mousePosition_;
                 const bool pointerOverUi = panelHits[pointerHand].valid &&
-                    !BuildingInstallerInited() && xrZeroplastHand_ < 0;
+                    inGameInterfaceActive && !BuildingInstallerInited() &&
+                    xrZeroplastHand_ < 0;
                 uiPointerVisible = pointerOverUi;
                 if (pointerOverUi) {
                     uiPointerX = panelHits[pointerHand].x;
@@ -1501,7 +1503,9 @@ void GameShell::Show()
                                             &ground, false, false)) {
                             BuildingInstaller->SetBuildPositionWorld(ground, xrBuildAngle_,
                                                                      universe()->activePlayer());
-                            if ((hand.pressed & ANDROID_XR_SELECT) && BuildingInstaller->valid()) {
+                            if (inGameInterfaceActive &&
+                                (hand.pressed & ANDROID_XR_SELECT) &&
+                                BuildingInstaller->valid()) {
                                 BuildingInstaller->ConstructObject(universe()->activePlayer());
                                 xrBuildAngle_ = 0.0f;
                             }
@@ -1570,7 +1574,8 @@ void GameShell::Show()
                             universe()->DeselectAll();
                             continue;
                         }
-                        if ((input.pressed & ANDROID_XR_SELECT) == 0)
+                        if (!inGameInterfaceActive ||
+                            (input.pressed & ANDROID_XR_SELECT) == 0)
                             continue;
 
                         const MatXf worldAim = centerWorld *
@@ -1618,18 +1623,18 @@ void GameShell::Show()
             gbCircleShow->BeginStereoDraw();
             androidXrSetUiPanelVisible(xrInput.focused && xrPanelVisible_ &&
                 panelTracked && _shellIconManager.interfaceShowFlag());
-            float laserDistances[2];
+            float laserDistances[2]{};
             terUnitBase* hoveredUnits[2]{};
-            const bool hoverEnabled = xrInput.focused &&
-                _shellIconManager.interfaceShowFlag() &&
+            const bool hoverEnabled = inGameInterfaceActive && xrInput.focused &&
                 !BuildingInstallerInited() &&
                 m_ShellDispatcher.m_nEditRegion == editRegionNone &&
                 !isScriptReelEnabled();
             {
                 MTAutoSingleThread logicLock;
-                getXrControllerLaserDistances(xrInput, *xrCameraRig_, centerWorld,
-                    uiWidth, uiHeight, laserDistances, true, skyCenter, skyRadius,
-                    hoverEnabled ? hoveredUnits : nullptr);
+                if (inGameInterfaceActive)
+                    getXrControllerLaserDistances(xrInput, *xrCameraRig_, centerWorld,
+                        uiWidth, uiHeight, laserDistances, true, skyCenter, skyRadius,
+                        hoverEnabled ? hoveredUnits : nullptr);
                 // PC hover owns one mark. Prefer the right controller when
                 // both beams hit units, and use the left when it misses.
                 _pUnitHover = hoverEnabled ?
@@ -1648,12 +1653,14 @@ void GameShell::Show()
                 if (_shellIconManager.interfaceShowFlag())
                     universe()->ShowInfo(false);
                 showWays();
-                for (unsigned hand = 0; hand < 2; ++hand) {
-                    drawXrControllerLaser(terRenderDevice, camera,
-                        xrCameraRig_->UnitsPerMeter(), xrViews[eye],
-                        xrInput.hands[hand], laserDistances[hand],
-                        hand == 0 ? sColor4c(64, 180, 255, 255)
-                                                       : sColor4c(255, 180, 64, 255));
+                if (inGameInterfaceActive) {
+                    for (unsigned hand = 0; hand < 2; ++hand) {
+                        drawXrControllerLaser(terRenderDevice, camera,
+                            xrCameraRig_->UnitsPerMeter(), xrViews[eye],
+                            xrInput.hands[hand], laserDistances[hand],
+                            hand == 0 ? sColor4c(64, 180, 255, 255)
+                                                           : sColor4c(255, 180, 64, 255));
+                    }
                 }
             });
             gbCircleShow->EndStereoDraw();
