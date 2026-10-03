@@ -793,13 +793,18 @@ static bool drawXrUiPanel(cInterfaceRenderDevice* renderer,
     renderer->SetClipRect(0, 0, static_cast<int>(width), static_cast<int>(height));
     _shellIconManager.draw();
     if (dispatcher) dispatcher->draw();
-    if (cursorVisible) {
-        androidXrRestoreUiPanelViewport(renderer, width, height);
-        drawXrPanelCursor(renderer, cursorX, cursorY);
-    }
     renderer->FlushPrimitive2D();
     renderer->EndScene();
     renderer->Flush();
+    androidXrCaptureUiPanelHitSurface();
+    if (cursorVisible) {
+        renderer->BeginScene();
+        androidXrRestoreUiPanelViewport(renderer, width, height);
+        drawXrPanelCursor(renderer, cursorX, cursorY);
+        renderer->FlushPrimitive2D();
+        renderer->EndScene();
+        renderer->Flush();
+    }
     androidXrEndUiPanel(renderer);
     return true;
 }
