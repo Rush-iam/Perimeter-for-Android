@@ -1835,6 +1835,15 @@ public:
 
 	void quant(float dTime);
 	void draw();
+#if defined(ANDROID_XR)
+    enum class XrUiPart { All, Gameplay, Menu };
+    void drawXrUi(XrUiPart part);
+    void setXrUiInputPart(XrUiPart part) { xrUiPart_ = part; }
+private:
+    XrUiPart xrUiPart_ = XrUiPart::All;
+    bool matchesXrUiPart(const CShellWindow* window) const;
+public:
+#endif
 
 	inline int IsEffect()	{ return m_fEffectTime>=0; }
 	inline int IsInterface(){ return getDesktop() != nullptr;}

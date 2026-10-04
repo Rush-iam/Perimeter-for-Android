@@ -45,6 +45,7 @@
 #include "AndroidTouchInput.h"
 #if defined(ANDROID_XR)
 #include "AndroidXrBootstrap.h"
+#include "MainMenu.h"
 #include "AndroidXrListenerPose.h"
 #include "xr/XrCameraRig.h"
 #include "xr/XrSceneCamera.h"
@@ -399,7 +400,7 @@ static float getXrControllerLaserDistance(const AndroidXrHandState& hand,
     if (!hand.aimValid) return 0.0f;
     constexpr float fallbackDistanceMeters = 5.0f;
     float panelX, panelY, panelDistance;
-    const bool panelHit = androidXrHitUiPanel(hand, uiWidth, uiHeight,
+    const bool panelHit = androidXrHitUiPanels(hand, uiWidth, uiHeight,
                                              &panelX, &panelY, &panelDistance);
     if (!worldVisible) return panelHit ? panelDistance : fallbackDistanceMeters;
 
@@ -461,6 +462,7 @@ static void getXrControllerLaserDistances(const AndroidXrInputFrame& input,
 }
 
 struct XrPanelHit {
+    AndroidXrUiPanelKind kind = AndroidXrUiPanelKind::Gameplay;
     bool valid = false;
     float x = 0.0f;
     float y = 0.0f;
@@ -792,7 +794,8 @@ static bool drawXrUiPanel(cInterfaceRenderDevice* renderer,
     renderer->Fill(0, 0, 0, 0);
     renderer->BeginScene();
     renderer->SetClipRect(0, 0, static_cast<int>(width), static_cast<int>(height));
-    _shellIconManager.draw();
+    _shellIconManager.drawXrUi(kind == AndroidXrUiPanelKind::Menu ?
+        CShellIconManager::XrUiPart::Menu : CShellIconManager::XrUiPart::Gameplay);
     if (dispatcher) dispatcher->draw();
     renderer->FlushPrimitive2D();
     renderer->EndScene();
@@ -1380,6 +1383,11 @@ void GameShell::GameClose()
     xrLetterboxAmount_ = 0.0f;
     xrWorkareaPressHand_ = -1;
     xrMenuPanelPoseAnchored_ = false;
+    xrInGameMenuPanel_ = false;
+    if (xrUiPressCaptured_) _shellIconManager.lButtonReset();
+    xrUiPressCaptured_ = false;
+    xrUiPressMenu_ = false;
+    xrUiPressHand_ = -1;
     // The menu mesh uses the default rig scale and origin. Its UI panel is
     // reanchored separately, so discard mission navigation before returning.
     if (xrCameraRig_) xrCameraRig_->ResetNavigation();
@@ -1678,9 +1686,31 @@ void GameShell::Show()
             terUniverse* const frameUniverse = universe();
             const auto endXrFrameIfMissionChanged = [&]() {
                 if (GameActive && universe() == frameUniverse) return false;
+                _shellIconManager.setXrUiInputPart(CShellIconManager::XrUiPart::All);
                 androidXrEndFrame(false);
                 return true;
             };
+            if (xrInput.focused &&
+                ((xrInput.hands[0].pressed | xrInput.hands[1].pressed) & ANDROID_XR_MENU) &&
+                _shellIconManager.IsInterface() && _shellIconManager.interfaceShowFlag() &&
+                !isScriptReelEnabled() && intfCanHandleInput()) {
+                // Use the screen's normal Back/Resume action, including modal dialogs.
+                if (xrUiPressCaptured_) _shellIconManager.lButtonReset();
+                xrUiPressCaptured_ = false;
+                xrUiPressHand_ = -1;
+                if (_shellIconManager.menuVisible()) {
+                    CShellWindow* menu = _shellIconManager.GetModalWnd();
+                    if (!menu) {
+                        const int screen = _shellIconManager.getVisibleMenuScr();
+                        if (screen >= 0) menu = _shellIconManager.GetWnd(screen);
+                    }
+                    if (menu) menu->OnKeyDown(VK_ESCAPE);
+                } else if (!_bMenuMode) {
+                    EnterInMissionMenu();
+                }
+                if (endXrFrameIfMissionChanged()) return;
+            }
+            bool xrMissionMenuActive = _bMenuMode || _shellIconManager.menuVisible();
             cCamera* centerCamera = terCamera->GetCamera();
             if (!xrCameraRig_) xrCameraRig_ = new XrCameraRig();
             xrCameraRig_->SetMenuHeadingAligned(false);
@@ -1709,7 +1739,7 @@ void GameShell::Show()
             // A visible mission menu owns the sticks instead of the table camera.
             const bool xrTableControlsEnabled =
                 xrInput.focused && !xrTableCameraLocked &&
-                !_shellIconManager.menuVisible();
+                !xrMissionMenuActive;
             MatXf centerWorld = centerCamera->GetMatrix();
             centerWorld.invert();
             if (xrInput.recentered && inGameInterfaceActive)
@@ -1778,7 +1808,34 @@ void GameShell::Show()
                                 xrEyeCameras_, xrViews);
             const unsigned uiWidth = static_cast<unsigned>(terRenderDevice->GetSizeX());
             const unsigned uiHeight = static_cast<unsigned>(terRenderDevice->GetSizeY());
-            androidXrPrepareUiPanel(uiWidth, uiHeight);
+            // Keep the tablet and menu plane independent, including hit snapshots.
+            bool tabletUiVisible = false;
+            const auto updateUiPanelPlacement = [&]() {
+                const bool menuVisible = _shellIconManager.menuVisible();
+                const bool changed = xrInGameMenuPanel_ != menuVisible;
+                xrMissionMenuActive = _bMenuMode || menuVisible;
+                tabletUiVisible = xrInput.focused && !xrMissionMenuActive &&
+                    xrPanelVisible_ && _shellIconManager.interfaceShowFlag();
+                androidXrSelectUiPanel(AndroidXrUiPanelKind::Gameplay);
+                if (tabletUiVisible) {
+                    const bool panelTracked = androidXrAttachUiPanelToHand(
+                        xrInput.hands[xrPanelHand_], xrPanelHand_);
+                    tabletUiVisible = panelTracked && androidXrPrepareUiPanel(uiWidth, uiHeight);
+                }
+                androidXrSetUiPanelVisible(tabletUiVisible);
+                androidXrSelectUiPanel(AndroidXrUiPanelKind::Menu);
+                if (menuVisible) {
+                    if (changed || xrInput.recentered) androidXrResetUiPanelPose();
+                    androidXrSetUiPanelFixed(xrMenuPanelDistanceMeters_,
+                                             xrMenuPanelWidthMeters_);
+                    androidXrPrepareUiPanel(uiWidth, uiHeight, AndroidXrUiPanelKind::Menu);
+                }
+                androidXrSetUiPanelVisible(xrInput.focused && menuVisible &&
+                    _shellIconManager.interfaceShowFlag());
+                xrInGameMenuPanel_ = menuVisible;
+                return changed;
+            };
+            updateUiPanelPlacement();
             // Only an interface-disabled cutscene closes the blinds. A missing
             // desktop at mission startup must not trigger an opening animation.
             if (isCutSceneMode() && !inGameInterfaceActive) {
@@ -1789,25 +1846,27 @@ void GameShell::Show()
             }
 
             bool uiPointerVisible = false;
+            bool uiPointerOnMenu = false;
             Vect3f xrBrushPosition = Vect3f::ZERO;
             float xrBrushRadius = 0.0f;
             bool xrBrushUsesLeftHand = false;
             float uiPointerX = 0.0f;
             float uiPointerY = 0.0f;
-            bool panelTracked = false;
             float laserDistances[2]{};
             terUnitBase* hoveredUnits[2]{};
             bool laserHitUnits[2]{};
             Vect2f xrAreaScreenCorners[2][4]{};
             bool xrAreaEyeVisible[2]{};
             const bool hoverEnabled = inGameInterfaceActive && xrInput.focused &&
+                !xrMissionMenuActive &&
                 !BuildingInstallerInited() &&
                 m_ShellDispatcher.m_nEditRegion == editRegionNone &&
                 !isScriptReelEnabled();
             if (xrInput.focused) {
                 bool panelChanged = false;
                 for (unsigned hand = 0; hand < 2; ++hand) {
-                    if (xrInput.hands[hand].pressed & ANDROID_XR_PANEL) {
+                    if (!xrMissionMenuActive &&
+                        (xrInput.hands[hand].pressed & ANDROID_XR_PANEL)) {
                         if (xrPanelVisible_ && xrPanelHand_ == hand)
                             xrPanelVisible_ = false;
                         else {
@@ -1817,28 +1876,36 @@ void GameShell::Show()
                         panelChanged = true;
                     }
                 }
-                panelTracked = androidXrAttachUiPanelToHand(
-                    xrInput.hands[xrPanelHand_], xrPanelHand_);
+                if (panelChanged) updateUiPanelPlacement();
                 if (xrUiPressCaptured_ &&
-                    (panelChanged || !xrPanelVisible_ || !panelTracked ||
-                     !inGameInterfaceActive)) {
+                    ((!xrUiPressMenu_ && (panelChanged || !tabletUiVisible)) ||
+                     (xrUiPressMenu_ && !xrInGameMenuPanel_) || !inGameInterfaceActive)) {
                     _shellIconManager.lButtonReset();
                     xrUiPressCaptured_ = false;
                     xrUiPressHand_ = -1;
                 }
-                androidXrSetUiPanelVisible(xrPanelVisible_ && panelTracked &&
-                    _shellIconManager.interfaceShowFlag());
                 XrPanelHit panelHits[2];
-                if (xrPanelVisible_ && panelTracked && inGameInterfaceActive) {
-                    for (unsigned hand = 0; hand < 2; ++hand)
-                        panelHits[hand].valid = androidXrHitUiPanel(
-                            xrInput.hands[hand], uiWidth, uiHeight,
-                            &panelHits[hand].x, &panelHits[hand].y);
+                if (inGameInterfaceActive) {
+                    for (unsigned hand = 0; hand < 2; ++hand) {
+                        if (xrUiPressCaptured_ && xrUiPressHand_ == static_cast<int>(hand)) {
+                            panelHits[hand].kind = xrUiPressMenu_ ?
+                                AndroidXrUiPanelKind::Menu : AndroidXrUiPanelKind::Gameplay;
+                            androidXrSelectUiPanel(panelHits[hand].kind);
+                            panelHits[hand].valid = androidXrHitUiPanel(
+                                xrInput.hands[hand], uiWidth, uiHeight,
+                                &panelHits[hand].x, &panelHits[hand].y);
+                        } else {
+                            panelHits[hand].valid = androidXrHitUiPanels(
+                                xrInput.hands[hand], uiWidth, uiHeight,
+                                &panelHits[hand].x, &panelHits[hand].y, nullptr,
+                                &panelHits[hand].kind);
+                        }
+                    }
                 }
                 const bool worldTriggerPressed =
                     ((xrInput.hands[0].pressed | xrInput.hands[1].pressed) &
                      ANDROID_XR_SELECT) != 0;
-                if (inGameInterfaceActive && worldTriggerPressed) {
+                if (inGameInterfaceActive && !xrMissionMenuActive && worldTriggerPressed) {
                     MTAutoSingleThread logicLock;
                     float hitDistances[2]{};
                     getXrControllerLaserDistances(xrInput, *xrCameraRig_, centerWorld,
@@ -1860,7 +1927,8 @@ void GameShell::Show()
                      m_ShellDispatcher.m_nEditRegion == editRegion2) &&
                     CurrentMission.gameType_ != GT_PLAY_RELL;
                 const bool workareaControlsEnabled = workareaMode &&
-                    inGameInterfaceActive && !xrTableCameraLocked && !isPaused();
+                    inGameInterfaceActive && !xrMissionMenuActive &&
+                    !xrTableCameraLocked && !isPaused();
                 // A tool switch already submits through CancelEditWorkarea.
                 if (!workareaMode) {
                     xrWorkareaPressHand_ = -1;
@@ -1874,15 +1942,19 @@ void GameShell::Show()
                     xrUiPressCaptured_ ? xrUiPressHand_ : -1);
                 if (xrWorkareaPressHand_ >= 0)
                     pointerHand = static_cast<unsigned>(xrWorkareaPressHand_);
-                else if (BuildingInstallerInited())
+                else if (BuildingInstallerInited() && !xrMissionMenuActive)
                     pointerHand = xrBuildHand_;
-                else if (workareaMode && !xrUiPressCaptured_)
+                else if (workareaMode && !xrUiPressCaptured_ && !xrMissionMenuActive)
                     pointerHand = xrWorkareaToolHand_;
                 Vect2f pointerPosition = mousePosition_;
                 const bool pointerOverUi = panelHits[pointerHand].valid &&
-                    inGameInterfaceActive && !BuildingInstallerInited() &&
+                    inGameInterfaceActive &&
+                    (xrInGameMenuPanel_ || !BuildingInstallerInited()) &&
                     xrWorkareaPressHand_ < 0;
                 uiPointerVisible = pointerOverUi;
+                uiPointerOnMenu = panelHits[pointerHand].kind == AndroidXrUiPanelKind::Menu;
+                _shellIconManager.setXrUiInputPart(uiPointerOnMenu ?
+                    CShellIconManager::XrUiPart::Menu : CShellIconManager::XrUiPart::Gameplay);
                 if (pointerOverUi) {
                     uiPointerX = panelHits[pointerHand].x;
                     uiPointerY = panelHits[pointerHand].y;
@@ -1915,6 +1987,8 @@ void GameShell::Show()
                     if (released) {
                         const float x = pointerPosition.x + 0.5f;
                         const float y = pointerPosition.y + 0.5f;
+                        _shellIconManager.setXrUiInputPart(xrUiPressMenu_ ?
+                            CShellIconManager::XrUiPart::Menu : CShellIconManager::XrUiPart::Gameplay);
                         const bool uiHandled = _shellIconManager.OnLButtonUp(x, y);
                         if (endXrFrameIfMissionChanged()) {
                             xrUiPressCaptured_ = false;
@@ -1945,10 +2019,10 @@ void GameShell::Show()
 
                 if (BuildingInstallerInited() ||
                     m_ShellDispatcher.m_nEditRegion != editRegionNone ||
-                    xrUiPressCaptured_ || !inGameInterfaceActive)
+                    xrUiPressCaptured_ || !inGameInterfaceActive || xrMissionMenuActive)
                     xrAreaSelectHand_ = -1;
 
-                if (BuildingInstallerInited()) {
+                if (BuildingInstallerInited() && !xrMissionMenuActive) {
                     const auto& hand = xrInput.hands[pointerHand];
                     if (!hand.aimValid || xrCancelPressed) {
                         BuildingInstaller->CancelObject();
@@ -2105,6 +2179,9 @@ void GameShell::Show()
                             if ((input.pressed & ANDROID_XR_SELECT) && !xrUiPressCaptured_) {
                                 const float x = panelHits[handIndex].x / uiWidth;
                                 const float y = panelHits[handIndex].y / uiHeight;
+                                xrUiPressMenu_ = panelHits[handIndex].kind == AndroidXrUiPanelKind::Menu;
+                                _shellIconManager.setXrUiInputPart(xrUiPressMenu_ ?
+                                    CShellIconManager::XrUiPart::Menu : CShellIconManager::XrUiPart::Gameplay);
                                 const bool uiHandled = _shellIconManager.OnLButtonDown(x, y);
                                 if (endXrFrameIfMissionChanged()) return;
                                 if (!uiHandled)
@@ -2120,6 +2197,7 @@ void GameShell::Show()
                             }
                             continue;
                         }
+                        if (_bMenuMode || _shellIconManager.menuVisible()) continue;
                         // A chosen work-area tool owns world trigger input.
                         if (m_ShellDispatcher.m_nEditRegion != editRegionNone)
                             continue;
@@ -2190,6 +2268,7 @@ void GameShell::Show()
                 xrUiPressHand_ = -1;
             }
 
+            _shellIconManager.setXrUiInputPart(CShellIconManager::XrUiPart::All);
             if (!BuildingInstallerInited())
                 xrBuildHand_ = 1;
             if (endXrFrameIfMissionChanged()) return;
@@ -2217,13 +2296,18 @@ void GameShell::Show()
             if (xrBrushRadius > 0.0f)
                 terCircleShowGraph(xrBrushPosition, xrBrushRadius, brushCircle);
             gbCircleShow->BeginStereoDraw();
-            androidXrSetUiPanelVisible(xrInput.focused && xrPanelVisible_ &&
-                panelTracked && _shellIconManager.interfaceShowFlag());
+            // Refresh both surfaces after callbacks (including mission-result screens).
+            if (updateUiPanelPlacement() && xrUiPressMenu_) {
+                uiPointerVisible = false;
+                if (xrUiPressCaptured_) _shellIconManager.lButtonReset();
+                xrUiPressCaptured_ = false;
+                xrUiPressHand_ = -1;
+            }
             {
                 MTAutoSingleThread logicLock;
                 if (inGameInterfaceActive)
                     getXrControllerLaserDistances(xrInput, *xrCameraRig_, centerWorld,
-                        uiWidth, uiHeight, laserDistances, true, skyCenter,
+                        uiWidth, uiHeight, laserDistances, !xrMissionMenuActive, skyCenter,
                         skyRadius, hoverEnabled ? hoveredUnits : nullptr);
                 // PC hover owns one mark. Prefer the right controller when
                 // both beams hit units, and use the left when it misses.
@@ -2267,6 +2351,12 @@ void GameShell::Show()
                                 referenceRotation * Vect3f::I,
                                 overlayRight, overlayUp, overlayFacing);
             const float brushPhase = static_cast<float>(std::fmod(clockf(), 1000.0) / 1000.0);
+            const bool menuUiVisible = xrInGameMenuPanel_ && xrInput.focused &&
+                _shellIconManager.interfaceShowFlag();
+            bool menuPanelReady = !menuUiVisible ||
+                drawXrUiPanel(terRenderDevice, nullptr, uiWidth, uiHeight,
+                    uiPointerVisible && uiPointerOnMenu, uiPointerX, uiPointerY,
+                    AndroidXrUiPanelKind::Menu);
             const bool rendered = drawXrEyeViews(terRenderDevice, xrViews, [&](unsigned eye) {
                 cCamera* camera = xrEyeCameras_[eye];
                 terRenderDevice->SetRenderState(RS_FOGENABLE, false);
@@ -2348,15 +2438,21 @@ void GameShell::Show()
                                     xrViews[eye], xrViews,
                                     xrCameraRig_->UnitsPerMeter(),
                                     xrLetterboxAmount_);
+                if (menuUiVisible && menuPanelReady) {
+                    terRenderDevice->FlushPrimitive3D();
+                    terRenderDevice->FlushPrimitive2D();
+                    menuPanelReady = androidXrDrawUiPanelInEye(terRenderDevice, eye);
+                }
             });
             gbCircleShow->EndStereoDraw();
-            if (rendered && xrInput.focused && xrPanelVisible_ && panelTracked &&
-                _shellIconManager.interfaceShowFlag())
+            androidXrSelectUiPanel(AndroidXrUiPanelKind::Gameplay);
+            if (rendered && tabletUiVisible)
                 drawXrUiPanel(terRenderDevice, &m_ShellDispatcher,
-                              uiWidth, uiHeight, uiPointerVisible, uiPointerX, uiPointerY);
+                              uiWidth, uiHeight, uiPointerVisible && !uiPointerOnMenu,
+                              uiPointerX, uiPointerY, AndroidXrUiPanelKind::Gameplay);
             if (xrChatInfo) xrChatInfo->setXrOverlayActive(false);
             if (xrMissionHint) xrMissionHint->setXrOverlayActive(false);
-            androidXrEndFrame(rendered);
+            androidXrEndFrame(rendered && menuPanelReady);
             m_ShellDispatcher.PostDraw();
             terScene->PostDraw(centerCamera);
             return;
@@ -2471,6 +2567,9 @@ void GameShell::Show()
         AndroidXrEyeView menuViews[2]{};
         AndroidXrInputFrame menuInput{};
         if (androidXrBeginFrame(menuViews, &menuInput)) {
+            androidXrSelectUiPanel(AndroidXrUiPanelKind::Gameplay);
+            androidXrSetUiPanelVisible(false);
+            androidXrSelectUiPanel(AndroidXrUiPanelKind::Menu);
             if (menuInput.recentered) terCamera->recenterOrientation();
             cCamera* centerCamera = terCamera->GetCamera();
             if (!xrCameraRig_) xrCameraRig_ = new XrCameraRig();
@@ -2518,8 +2617,11 @@ void GameShell::Show()
                 if (panelDistanceMeters < 0.05f) panelDistanceMeters = 0.05f;
                 const float panelSizeScale =
                     panelDistanceMeters / menuPanelDistanceMeters;
-                androidXrSetUiPanelFixed(panelDistanceMeters,
-                    bgScene->xrMenuPanelWidthUnits() / unitsPerMeter * panelSizeScale);
+                xrMenuPanelDistanceMeters_ = panelDistanceMeters;
+                xrMenuPanelWidthMeters_ =
+                    bgScene->xrMenuPanelWidthUnits() / unitsPerMeter * panelSizeScale;
+                androidXrSetUiPanelFixed(xrMenuPanelDistanceMeters_,
+                                         xrMenuPanelWidthMeters_);
             } else {
                 androidXrSetUiPanelFixed();
             }
@@ -2533,6 +2635,7 @@ void GameShell::Show()
             float uiPointerX = 0.0f;
             float uiPointerY = 0.0f;
             if (menuInput.focused) {
+                _shellIconManager.setXrUiInputPart(CShellIconManager::XrUiPart::Menu);
                 if (xrUiPressCaptured_ && !_shellIconManager.interfaceShowFlag()) {
                     _shellIconManager.lButtonReset();
                     xrUiPressCaptured_ = false;
@@ -2599,6 +2702,7 @@ void GameShell::Show()
                     if (!_shellIconManager.OnLButtonDown(x, y))
                         m_ShellDispatcher.OnLButtonDown(x, y);
                     xrUiPressCaptured_ = true;
+                    xrUiPressMenu_ = true;
                     xrUiPressHand_ = static_cast<int>(pointerHand);
                 }
             } else {
@@ -2608,9 +2712,16 @@ void GameShell::Show()
                 xrUiPressHand_ = -1;
             }
 
+            _shellIconManager.setXrUiInputPart(CShellIconManager::XrUiPart::All);
+
             // A menu selection can enter the mission and dispose menu scenes
             // while this OpenXR frame is still open.
             if (GameActive) {
+                // The menu click must not release onto the newly loaded HUD.
+                if (xrUiPressCaptured_) _shellIconManager.lButtonReset();
+                xrUiPressCaptured_ = false;
+                xrUiPressMenu_ = false;
+                xrUiPressHand_ = -1;
                 androidXrEndFrame(false);
                 return;
             }

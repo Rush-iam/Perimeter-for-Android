@@ -32,6 +32,7 @@ static bool drawXrReelFrame(ReelManager* reel, unsigned width, unsigned height,
         }
     }
 
+    androidXrSelectUiPanel(AndroidXrUiPanelKind::Gameplay);
     androidXrSetUiPanelFixed();
     androidXrSetUiPanelVisible(input.focused);
     bool rendered = true;

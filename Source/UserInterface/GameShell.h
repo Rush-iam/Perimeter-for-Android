@@ -349,7 +349,11 @@ private:
     bool xrPanelVisible_ = true;
     unsigned xrPanelHand_ = 0; // Left hand by default.
     bool xrMenuPanelPoseAnchored_ = false;
+    bool xrInGameMenuPanel_ = false;
+    float xrMenuPanelDistanceMeters_ = 1.4f;
+    float xrMenuPanelWidthMeters_ = 1.2f;
     bool xrUiPressCaptured_ = false;
+    bool xrUiPressMenu_ = false;
     int xrUiPressHand_ = -1;
     unsigned xrWorkareaToolHand_ = 1; // Keep the right hand as the fallback.
     int xrWorkareaPressHand_ = -1;

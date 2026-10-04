@@ -1845,6 +1845,9 @@ CShellWindow* CShellIconManager::HitTest(float x, float y)
 
 CShellWindow* CShellIconManager::HitTest(CShellWindow* pTop, float x, float y)
 {
+#if defined(ANDROID_XR)
+    if (!matchesXrUiPart(pTop)) return nullptr;
+#endif
 	CShellWindow* p = 0;
 
 	std::list<CShellWindow*>::reverse_iterator i;
@@ -2144,6 +2147,9 @@ int CShellIconManager::OnKeyUp(int key)
 
 void CShellIconManager::DrawControls(CShellWindow* pTop)
 {
+#if defined(ANDROID_XR)
+    if (!matchesXrUiPart(pTop)) return;
+#endif
 	if(pTop->ID != SQSH_BACKGRND_ID)
 		pTop->draw(m_pLastClicked == pTop);
 
@@ -2537,9 +2543,39 @@ void CShellIconManager::FormatUnitPopup(const AttributeBase* attr, std::string& 
 	}
 }
 
+#if defined(ANDROID_XR)
+bool CShellIconManager::matchesXrUiPart(const CShellWindow* window) const {
+    if (xrUiPart_ == XrUiPart::All || window == m_pDesktop) return true;
+    // Classify whole menu subtrees, including their anonymous/static children.
+    bool menu = false;
+    for (auto* ancestor = window; ancestor && ancestor != m_pDesktop;
+         ancestor = ancestor->m_pParent) {
+        if (ancestor->ID > SQSH_GAME_MAX && ancestor->ID < SQSH_MENU_MAX) {
+            menu = true;
+            break;
+        }
+    }
+    return menu == (xrUiPart_ == XrUiPart::Menu);
+}
+
+void CShellIconManager::drawXrUi(XrUiPart part) {
+    const auto previous = xrUiPart_;
+    xrUiPart_ = part;
+    draw();
+    xrUiPart_ = previous;
+}
+#endif
+
 void CShellIconManager::draw()
 {
 	terRenderDevice->FlushPrimitive2D();
+#if defined(ANDROID_XR)
+    if (xrUiPart_ == XrUiPart::Menu) {
+        if (mt_interface_quant && interfaceShowFlag() && getDesktop())
+            DrawControls(m_pDesktop);
+        return;
+    }
+#endif
 
 	if (ht_intf_test) {
 		if (getDesktop()) {
