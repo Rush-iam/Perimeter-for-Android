@@ -350,8 +350,7 @@ private:
     unsigned xrPanelHand_ = 0; // Left hand by default.
     bool xrMenuPanelPoseAnchored_ = false;
     bool xrInGameMenuPanel_ = false;
-    float xrMenuPanelDistanceMeters_ = 1.4f;
-    float xrMenuPanelWidthMeters_ = 1.2f;
+    float xrMenuPanelWidthPerMeter_ = 1.0f;
     bool xrUiPressCaptured_ = false;
     bool xrUiPressMenu_ = false;
     int xrUiPressHand_ = -1;

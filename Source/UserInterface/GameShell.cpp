@@ -111,7 +111,7 @@ static void drawXrControllerLaser(cInterfaceRenderDevice* renderer,
                                   const AndroidXrEyeView& eye,
                                   const AndroidXrHandState& hand,
                                   float distanceMeters,
-                                  const sColor4c& color)
+                                  const sColor4c& color, bool overlay = false)
 {
     if (!hand.aimValid || distanceMeters <= 0.0f || !eye.width || !eye.height) return;
     const Vect3f direction = rotateXrVector(hand.aimOrientation, Vect3f(0, 0, -1));
@@ -134,9 +134,10 @@ static void drawXrControllerLaser(cInterfaceRenderDevice* renderer,
     renderer->SetDrawTransform(camera);
     renderer->SetWorldMat4f(nullptr);
     renderer->SetRenderState(RS_ZWRITEENABLE, 0);
-    renderer->SetRenderState(RS_ZENABLE, 1);
+    // Menu lasers draw over the plane and backdrop without world occlusion.
+    renderer->SetRenderState(RS_ZENABLE, overlay ? 0 : 1);
     // DrawScene leaves CMP_ALWAYS set for 2D overlays. Restore a real depth
-    // comparison so world geometry can hide the controller laser.
+    // comparison so world geometry can hide gameplay lasers.
     renderer->SetRenderState(RS_ZFUNC, CMP_LESSEQUAL);
     auto* buffer = renderer->GetDrawBuffer(sVertexXYZDT1::fmt, PT_TRIANGLES);
     auto* vertices = buffer->LockQuad<sVertexXYZDT1>(1);
@@ -1826,8 +1827,11 @@ void GameShell::Show()
                 androidXrSelectUiPanel(AndroidXrUiPanelKind::Menu);
                 if (menuVisible) {
                     if (changed || xrInput.recentered) androidXrResetUiPanelPose();
-                    androidXrSetUiPanelFixed(xrMenuPanelDistanceMeters_,
-                                             xrMenuPanelWidthMeters_);
+                    const float distanceMeters = xrCameraRig_->SubtitleDistanceMeters();
+                    // Match subtitle zoom interpolation and retain the authored
+                    // menu's angular size as its distance changes from 1 meter.
+                    androidXrSetUiPanelFixed(distanceMeters,
+                        xrMenuPanelWidthPerMeter_ * distanceMeters);
                     androidXrPrepareUiPanel(uiWidth, uiHeight, AndroidXrUiPanelKind::Menu);
                 }
                 androidXrSetUiPanelVisible(xrInput.focused && menuVisible &&
@@ -2359,6 +2363,15 @@ void GameShell::Show()
                     AndroidXrUiPanelKind::Menu);
             const bool rendered = drawXrEyeViews(terRenderDevice, xrViews, [&](unsigned eye) {
                 cCamera* camera = xrEyeCameras_[eye];
+                const auto drawControllerLasers = [&]() {
+                    for (unsigned hand = 0; hand < 2; ++hand) {
+                        drawXrControllerLaser(terRenderDevice, camera,
+                            xrCameraRig_->UnitsPerMeter(), xrViews[eye],
+                            xrInput.hands[hand], laserDistances[hand],
+                            hand == 0 ? sColor4c(64, 180, 255, 255)
+                                      : sColor4c(255, 180, 64, 255), menuUiVisible);
+                    }
+                };
                 terRenderDevice->SetRenderState(RS_FOGENABLE, false);
                 terScene->DrawView(camera);
                 // DrawView restores the logical UI scissor, but world overlays
@@ -2380,13 +2393,7 @@ void GameShell::Show()
                                             xrAreaScreenCorners[eye],
                                             xrViews[eye].width, xrViews[eye].height);
                     }
-                    for (unsigned hand = 0; hand < 2; ++hand) {
-                        drawXrControllerLaser(terRenderDevice, camera,
-                            xrCameraRig_->UnitsPerMeter(), xrViews[eye],
-                            xrInput.hands[hand], laserDistances[hand],
-                            hand == 0 ? sColor4c(64, 180, 255, 255)
-                                                           : sColor4c(255, 180, 64, 255));
-                    }
+                    if (!menuUiVisible) drawControllerLasers();
                 }
                 if ((xrChatInfo && xrChatInfo->isVisible()) ||
                     (xrMissionHint && xrMissionHint->isVisible())) {
@@ -2441,7 +2448,10 @@ void GameShell::Show()
                 if (menuUiVisible && menuPanelReady) {
                     terRenderDevice->FlushPrimitive3D();
                     terRenderDevice->FlushPrimitive2D();
+                    _shellIconManager.drawXrMenuBackground(xrViews[eye].width,
+                                                          xrViews[eye].height);
                     menuPanelReady = androidXrDrawUiPanelInEye(terRenderDevice, eye);
+                    if (inGameInterfaceActive) drawControllerLasers();
                 }
             });
             gbCircleShow->EndStereoDraw();
@@ -2617,11 +2627,10 @@ void GameShell::Show()
                 if (panelDistanceMeters < 0.05f) panelDistanceMeters = 0.05f;
                 const float panelSizeScale =
                     panelDistanceMeters / menuPanelDistanceMeters;
-                xrMenuPanelDistanceMeters_ = panelDistanceMeters;
-                xrMenuPanelWidthMeters_ =
+                const float panelWidthMeters =
                     bgScene->xrMenuPanelWidthUnits() / unitsPerMeter * panelSizeScale;
-                androidXrSetUiPanelFixed(xrMenuPanelDistanceMeters_,
-                                         xrMenuPanelWidthMeters_);
+                xrMenuPanelWidthPerMeter_ = panelWidthMeters / panelDistanceMeters;
+                androidXrSetUiPanelFixed(panelDistanceMeters, panelWidthMeters);
             } else {
                 androidXrSetUiPanelFixed();
             }
@@ -2783,16 +2792,19 @@ void GameShell::Show()
                 terRenderDevice->SetClipRect(0, 0,
                     static_cast<int>(menuViews[eye].width),
                     static_cast<int>(menuViews[eye].height));
+                terRenderDevice->FlushPrimitive3D();
+                if (menuUiVisible && menuPanelReady) {
+                    _shellIconManager.drawXrMenuBackground(menuViews[eye].width,
+                                                          menuViews[eye].height);
+                    menuPanelReady = androidXrDrawUiPanelInEye(terRenderDevice, eye);
+                }
                 for (unsigned hand = 0; hand < 2; ++hand) {
                     drawXrControllerLaser(terRenderDevice, menuCamera,
                         xrCameraRig_->UnitsPerMeter(), menuViews[eye],
                         menuInput.hands[hand], laserDistances[hand],
                         hand == 0 ? sColor4c(64, 180, 255, 255)
-                                                         : sColor4c(255, 180, 64, 255));
+                                  : sColor4c(255, 180, 64, 255), menuUiVisible);
                 }
-                terRenderDevice->FlushPrimitive3D();
-                if (menuUiVisible && menuPanelReady)
-                    menuPanelReady = androidXrDrawUiPanelInEye(terRenderDevice, eye);
             });
             androidXrEndFrame(rendered && menuPanelReady);
             if (menuHistoryScene) menuHistoryScene->postDraw();

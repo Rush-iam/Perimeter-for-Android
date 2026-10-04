@@ -607,7 +607,12 @@ public:
 	void LoadMenuWnd(const sqshControlContainer* attr) override;
 	virtual void init();
 	void draw(int bFocus) override;
+#if defined(ANDROID_XR)
+    void drawXrBackground(unsigned width, unsigned height);
+#endif
 	int  EffectSupported() override { return m_hTexture2 ? (effectCtrlRollIn|effectCtrlRollOut) : 0; }
+private:
+    void drawBackground(float x, float y, float sx, float sy);
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////
@@ -1838,6 +1843,8 @@ public:
 #if defined(ANDROID_XR)
     enum class XrUiPart { All, Gameplay, Menu };
     void drawXrUi(XrUiPart part);
+    bool isXrMenuDraw() const { return xrUiPart_ == XrUiPart::Menu; }
+    void drawXrMenuBackground(unsigned width, unsigned height);
     void setXrUiInputPart(XrUiPart part) { xrUiPart_ = part; }
 private:
     XrUiPart xrUiPart_ = XrUiPart::All;

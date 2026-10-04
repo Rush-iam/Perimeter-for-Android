@@ -2558,6 +2558,17 @@ bool CShellIconManager::matchesXrUiPart(const CShellWindow* window) const {
     return menu == (xrUiPart_ == XrUiPart::Menu);
 }
 
+void CShellIconManager::drawXrMenuBackground(unsigned width, unsigned height) {
+    if (!mt_interface_quant || !interfaceShowFlag() || !getDesktop()) return;
+    // Menu containers own the tiled noise backdrop. Their controls stay on the
+    // fixed plane, while the backdrop fills each eye without advancing twice.
+    for (int id = SQSH_GAME_MAX + 1; id < SQSH_MM_SCREENS_MAX; ++id) {
+        auto* background = dynamic_cast<CMultiTexWindow*>(GetWnd(id));
+        if (background) background->drawXrBackground(width, height);
+    }
+    terRenderDevice->FlushPrimitive2D();
+}
+
 void CShellIconManager::drawXrUi(XrUiPart part) {
     const auto previous = xrUiPart_;
     xrUiPart_ = part;

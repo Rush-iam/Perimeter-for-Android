@@ -4547,6 +4547,26 @@ void CMultiTexWindow::draw(int bFocus)
 	if((state & SQSH_VISIBLE) == 0)
 		return;
 
+#if defined(ANDROID_XR)
+    // Keep the backdrop out of the menu texture and its alpha hit snapshot.
+    if (!_shellIconManager.isXrMenuDraw())
+#endif
+        drawBackground(x, y, sx, sy);
+
+	if(m_handler)
+		m_handler(this, EVENT_DRAWWND, 0);
+}
+
+#if defined(ANDROID_XR)
+void CMultiTexWindow::drawXrBackground(unsigned width, unsigned height)
+{
+    if (state & SQSH_VISIBLE)
+        drawBackground(0, 0, width, height);
+}
+#endif
+
+void CMultiTexWindow::drawBackground(float x, float y, float sx, float sy)
+{
 	if( m_hTexture3 && m_hTexture2 ) // draw button
 	{
 		if (image2hasBelligerentVersion) {
@@ -4570,8 +4590,6 @@ void CMultiTexWindow::draw(int bFocus)
 		}
 	}
 
-	if(m_handler)
-		m_handler(this, EVENT_DRAWWND, 0);
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////
 //
