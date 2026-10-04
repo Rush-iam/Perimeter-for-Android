@@ -2525,6 +2525,10 @@ void GameShell::Show()
             }
             androidXrPrepareUiPanel(uiWidth, uiHeight, AndroidXrUiPanelKind::Menu);
 
+            BGScene::XrMenuHit menuMeshHits[2];
+            if (menuInput.focused && _shellIconManager.interfaceShowFlag())
+                bgScene->hitXrMenu(*xrCameraRig_, menuInput, menuMeshHits);
+
             bool uiPointerVisible = false;
             float uiPointerX = 0.0f;
             float uiPointerY = 0.0f;
@@ -2537,10 +2541,17 @@ void GameShell::Show()
                 androidXrSetUiPanelVisible(_shellIconManager.interfaceShowFlag());
                 XrPanelHit panelHits[2];
                 if (_shellIconManager.interfaceShowFlag()) {
-                    for (unsigned hand = 0; hand < 2; ++hand)
-                        panelHits[hand].valid = androidXrHitUiPanel(
-                            menuInput.hands[hand], uiWidth, uiHeight,
-                            &panelHits[hand].x, &panelHits[hand].y);
+                    for (unsigned hand = 0; hand < 2; ++hand) {
+                        if (menuMeshHits[hand].valid) {
+                            panelHits[hand].valid = true;
+                            panelHits[hand].x = menuMeshHits[hand].uiPosition.x * uiWidth;
+                            panelHits[hand].y = menuMeshHits[hand].uiPosition.y * uiHeight;
+                        } else {
+                            panelHits[hand].valid = androidXrHitUiPanel(
+                                menuInput.hands[hand], uiWidth, uiHeight,
+                                &panelHits[hand].x, &panelHits[hand].y);
+                        }
+                    }
                 }
                 const unsigned pointerHand = chooseXrPointerHand(
                     menuInput, panelHits, xrUiPressCaptured_ ? xrUiPressHand_ : -1);
@@ -2628,8 +2639,16 @@ void GameShell::Show()
             if (menuBackdropReady)
                 bgScene->prepareXrViews(*xrCameraRig_, menuViews);
             float laserDistances[2];
-            getXrControllerLaserDistances(menuInput, *xrCameraRig_, centerWorld,
-                uiWidth, uiHeight, laserDistances, false);
+            for (unsigned hand = 0; hand < 2; ++hand) {
+                if (menuMeshHits[hand].valid) {
+                    laserDistances[hand] = menuMeshHits[hand].distanceMeters;
+                } else {
+                    XrWorldRay unusedWorldRay;
+                    laserDistances[hand] = getXrControllerLaserDistance(
+                        menuInput.hands[hand], *xrCameraRig_, centerWorld,
+                        uiWidth, uiHeight, unusedWorldRay, false);
+                }
+            }
             const bool rendered = drawXrEyeViews(terRenderDevice, menuViews, [&](unsigned eye) {
                 cCamera* menuCamera = xrEyeCameras_[eye];
                 if (menuHistoryScene) {

@@ -8,6 +8,7 @@
 #if defined(ANDROID_XR)
 #include "xr/XrSceneCamera.h"
 #include "AnimChannelNode.h"
+#include "xr/XrUnitRay.h"
 #endif
 
 BGScene::BGScene() {
@@ -246,6 +247,39 @@ void BGScene::postDraw() {
 }
 
 #if defined(ANDROID_XR)
+void BGScene::hitXrMenu(const XrCameraRig& rig, const AndroidXrInputFrame& input,
+                        XrMenuHit (&hits)[2]) {
+    for (auto& hit : hits) hit = {};
+    if (!ready() || !bgObj || !camera) return;
+    MatXf centerWorld = camera->GetMatrix();
+    centerWorld.invert();
+    XrWorldRay rays[2];
+    const float limit = camera->GetZPlane().y;
+    for (unsigned hand = 0; hand < 2; ++hand) {
+        if (!input.hands[hand].aimValid) continue;
+        const MatXf aim = centerWorld * rig.Pose(input.hands[hand].aimPosition,
+                                                input.hands[hand].aimOrientation);
+        Vect3f direction = aim.rot() * Vect3f::K;
+        direction.normalize();
+        rays[hand] = {aim.trans(), direction, limit};
+    }
+    xrIntersectUnitRays(*bgObj, rays);
+    for (unsigned hand = 0; hand < 2; ++hand) {
+        if (rays[hand].distance <= 0.0f || rays[hand].distance >= limit) continue;
+        const Vect3f point = camera->GetMatrix() *
+            (rays[hand].origin + rays[hand].direction * rays[hand].distance);
+        if (point.z <= 0.0f) continue;
+        // Invert the authored menu projection to preserve its existing UI regions.
+        const float x = camera->GetCenterX() +
+            point.x * camera->GetScaleViewPort().x * camera->GetFocusX() / point.z;
+        const float y = camera->GetCenterY() -
+            point.y * camera->GetScaleViewPort().y * camera->GetFocusY() / point.z;
+        if (!std::isfinite(x) || !std::isfinite(y) ||
+            x < 0.0f || x > 1.0f || y < 0.0f || y > 1.0f) continue;
+        hits[hand] = {true, Vect2f(x, y), rays[hand].distance / rig.UnitsPerMeter()};
+    }
+}
+
 void BGScene::prepareXrViews(const XrCameraRig& rig, const AndroidXrEyeView views[2]) {
 	xrPrepareSceneCameras(scene, camera, xrEyes, rig, views);
 	scene->PreDraw(camera);

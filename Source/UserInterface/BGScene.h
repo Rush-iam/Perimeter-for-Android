@@ -6,6 +6,7 @@
 #if defined(ANDROID_XR)
 class XrCameraRig;
 struct AndroidXrEyeView;
+struct AndroidXrInputFrame;
 #endif
 
 class BGScene {
@@ -26,6 +27,13 @@ class BGScene {
 #if defined(ANDROID_XR)
 		void prepareXrViews(const XrCameraRig& rig, const AndroidXrEyeView views[2]);
 		void drawXrView(unsigned eye);
+		struct XrMenuHit {
+			bool valid = false;
+			Vect2f uiPosition = Vect2f(0.0f, 0.0f); // Normalized authored UI coordinates.
+			float distanceMeters = 0.0f;
+		};
+		void hitXrMenu(const XrCameraRig& rig, const AndroidXrInputFrame& input,
+		               XrMenuHit (&hits)[2]);
 		cCamera* xrCamera(unsigned eye) const { return xrEyes[eye]; }
 		float xrMenuPanelDistanceUnits() const { return menuPanelDistanceUnits; }
 		float xrMenuPanelWidthUnits() const { return menuPanelWidthUnits; }
