@@ -389,6 +389,17 @@ static bool getXrAreaSurfaceHit(const MatXf& worldAim,
     return surface.hit;
 }
 
+static float capXrLaserToMenuPlane(const AndroidXrHandState& hand, float distanceMeters) {
+    // The menu quad is drawn over the world scene. Cap the beam at its
+    // plane even when the ray misses the panel rect, so the laser cannot
+    // shoot through the menu into the world behind it.
+    float menuPlaneDistance = 0.0f;
+    if (androidXrUiPanelPlaneDistance(hand, &menuPlaneDistance,
+                                     AndroidXrUiPanelKind::Menu))
+        return std::min(distanceMeters, menuPlaneDistance);
+    return distanceMeters;
+}
+
 static float getXrControllerLaserDistance(const AndroidXrHandState& hand,
                                           const XrCameraRig& rig,
                                           const MatXf& centerWorld,
@@ -403,7 +414,10 @@ static float getXrControllerLaserDistance(const AndroidXrHandState& hand,
     float panelX, panelY, panelDistance;
     const bool panelHit = androidXrHitUiPanels(hand, uiWidth, uiHeight,
                                              &panelX, &panelY, &panelDistance);
-    if (!worldVisible) return panelHit ? panelDistance : fallbackDistanceMeters;
+    if (!worldVisible) {
+        const float distance = panelHit ? panelDistance : fallbackDistanceMeters;
+        return capXrLaserToMenuPlane(hand, distance);
+    }
 
     const MatXf worldAim = centerWorld * rig.Pose(hand.aimPosition, hand.aimOrientation);
     const Vect3f origin = worldAim.trans();
@@ -2761,7 +2775,8 @@ void GameShell::Show()
             float laserDistances[2];
             for (unsigned hand = 0; hand < 2; ++hand) {
                 if (menuMeshHits[hand].valid) {
-                    laserDistances[hand] = menuMeshHits[hand].distanceMeters;
+                    laserDistances[hand] = capXrLaserToMenuPlane(
+                        menuInput.hands[hand], menuMeshHits[hand].distanceMeters);
                 } else {
                     XrWorldRay unusedWorldRay;
                     laserDistances[hand] = getXrControllerLaserDistance(
