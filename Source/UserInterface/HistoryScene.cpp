@@ -24,6 +24,7 @@ extern MusicPlayer gb_Music;
 
 #if defined(ANDROID_XR)
 constexpr float kMenuCameraDurationScale = 2.0f; // 50% of the normal speed.
+constexpr float kBriefingOrbitSpeedScale = 0.33f; // 3x slower briefing orbit in VR.
 #endif
 
 HistoryScene::HistoryScene() {
@@ -651,6 +652,9 @@ void HistoryScene::clearCameraPath() {
 }
 
 void HistoryScene::cameraFollowNomad(float deltaPsi, float radius, float theta) {
+#if defined(ANDROID_XR)
+	if (!bwMode) deltaPsi *= kBriefingOrbitSpeedScale;
+#endif
 	historyCamera->setFollowNomadModeSettings(deltaPsi, radius, theta);
 	if (!historyCamera->isFollowNomadMode()) {
 		clearCameraPath();
